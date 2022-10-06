@@ -6,9 +6,30 @@ import core.stdc.stdio : perror;
 
 import serialport : SerialPortNonBlk;
 
+// Wrapper Class for messages sent through serial
+immutable class SerialType {
+    string message;
 
-int main(string[] args)
-{
+    this(string message) {
+        this.message = message;
+    }
+
+    public string toStringz() {
+        return this.message;
+    }
+}
+
+void setupSerial(string[] args) {
+}
+
+void sendSerial(string msg) {
+    //TODO: Send something over serial
+}
+
+SerialType getSerial(string[] args) {
+    return new SerialType("placeHolder");
+    //TODO: Setup serial receive
+    /*
     // If the user didn't provide the path to the port, print usage and exit
     if (args.length < 2)
     {
@@ -119,5 +140,5 @@ int main(string[] args)
                 stderr.writeln("tried to switch to an invalid state");
             }
         }
-    }
+    }*/
 }
