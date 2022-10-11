@@ -1,7 +1,15 @@
 import std.stdio;
 import std.algorithm : max;
 
-import core.sys.posix.sys.select;
+version (Posix)
+{
+    import core.sys.posix.sys.select;
+}
+version (Windows)
+{
+    import core.sys.windows.winsock2;
+}
+
 import core.stdc.stdio : perror;
 
 import serialport : SerialPortNonBlk;
@@ -27,20 +35,15 @@ void sendSerial(string msg) {
 }
 
 SerialType getSerial(string[] args) {
-    return new SerialType("placeHolder");
+    //return new SerialType("placeHolder");
     //TODO: Setup serial receive
-    /*
+
     // If the user didn't provide the path to the port, print usage and exit
-    if (args.length < 2)
-    {
-        stderr.writeln("usage: project-monitor /path/to/port");
-        return 1;
-    }
 
     // Open the port at 9600 baud
     auto port = new SerialPortNonBlk(args[1], 9600);
     // On scope exit, close the handle to the port
-    scope (exit) port.close();
+    //scope (exit) port.close();
 
     // Ask the device what the current state is
     port.write(['?']);
@@ -48,8 +51,13 @@ SerialType getSerial(string[] args) {
     fd_set fds; // Set of file descriptors to pass to select
     int ready; // Return value of select
     int stdin_fd = stdin.fileno(); // File descriptor of stdin
-    int port_fd = port.handle(); // File descriptor of the port
-    int nfds = max(stdin_fd, port_fd) + 1; // nfds parameter of select
+    auto port_fd = port.handle(); // File descriptor of the port
+
+    int nfds = 0;
+    version(Posix)
+    {
+        int nfds = max(stdin_fd, port_fd) + 1; // nfds parameter of select
+    }
     while (true)
     {
         // Initialize the file descriptor set
@@ -140,5 +148,5 @@ SerialType getSerial(string[] args) {
                 stderr.writeln("tried to switch to an invalid state");
             }
         }
-    }*/
+    }
 }
