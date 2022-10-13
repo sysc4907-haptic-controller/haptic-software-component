@@ -7,14 +7,17 @@ import core.stdc.stdio : perror;
 import serialport : SerialPortNonBlk;
 
 // Wrapper Class for messages sent through network
-class NetworkType {
+class NetworkType
+{
     string message;
 
-    this(string message) {
+    this(string message)
+    {
         this.message = message;
     }
 
-    public string toStringz() {
+    public string toStringz()
+    {
         return this.message;
     }
 }

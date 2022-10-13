@@ -16,39 +16,47 @@ import core.stdc.stdio : perror;
 import serialport : SerialPortNonBlk;
 
 // Wrapper Class for messages sent through serial
-class SerialType {
+class SerialType
+{
     string message;
 
-    immutable this(string message) {
+    immutable this(string message)
+    {
         this.message = message;
     }
 
-    public string toStringz() {
+    public string toStringz()
+    {
         return this.message;
     }
 }
 
-void setupSerial(string[] args) {
+void setupSerial(string[] args)
+{
 }
 
-void sendSerial(string msg) {
+void sendSerial(string msg)
+{
     //TODO: Send something over serial
 }
 
-void serialReceiveWorker(Tid parentTid, string serialPortPath) {
+void serialReceiveWorker(Tid parentTid, string serialPortPath)
+{
     auto port = new SerialPortNonBlk(serialPortPath, 9600);
-    scope (exit) port.close();
+    scope (exit)
+        port.close();
 
     // loop and read from it...
     //send(parentTid, new SerialType("whatever"));
 }
 
-immutable(SerialType) getSerial(string[] args) {
+immutable(SerialType) getSerial(string[] args)
+{
     return new immutable SerialType("placeHolder");
     //TODO: Setup serial receive
 
     // If the user didn't provide the path to the port, print usage and exit
-/*
+    /*
     // Open the port at 9600 baud
     auto port = new SerialPortNonBlk(args[1], 9600);
     // On scope exit, close the handle to the port

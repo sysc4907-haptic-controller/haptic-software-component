@@ -10,58 +10,66 @@ import serialport : SerialPortNonBlk;
 
 import sim, serial, network;
 
-
-void handleReceivedSerial(SerialType msg) {
+void handleReceivedSerial(SerialType msg)
+{
     writeln("Message Received from Serial: " ~ msg.toStringz());
 }
 
-void handleReceivedNetwork(NetworkType msg) {
+void handleReceivedNetwork(NetworkType msg)
+{
     writeln("Message Received from Network: " ~ msg.toStringz());
 }
 
-void eventLoop() {
+void eventLoop()
+{
     bool done = false;
     SDL_Event event;
 
-    while(!done && SDL_PollEvent(&event)){
-        switch(event.type){
-           case SDL_KEYDOWN:
-                hotkeyPressed(event.key.keysym.sym);
-                break;
-            case SDL_QUIT:
-                done = true;
-                break;
-            default:
-                break;
+    while (!done && SDL_PollEvent(&event))
+    {
+        switch (event.type)
+        {
+        case SDL_KEYDOWN:
+            hotkeyPressed(event.key.keysym.sym);
+            break;
+        case SDL_QUIT:
+            done = true;
+            break;
+        default:
+            break;
         }
-        (-1.seconds).receiveTimeout(
-            (SerialType msg) { handleReceivedSerial(msg); },
-            (NetworkType msg) { handleReceivedNetwork(msg); }
-        );
+        (-1.seconds).receiveTimeout((SerialType msg) {
+            handleReceivedSerial(msg);
+        }, (NetworkType msg) { handleReceivedNetwork(msg); });
     }
 }
 
-void receiveLoop(string[] args) {
+void receiveLoop(string[] args)
+{
     setupSerial(args);
-    while(true){
+    while (true)
+    {
         //TODO: setup select to check for received serial, then output it ig?
         //IDK how select is useful here, cause if there is no incoming serial we wanna do nothing
         //Change to: if theres a serial msg incoming
-        if(true){
+        if (true)
+        {
             immutable SerialType receivedMessageFromSerial = getSerial(args);
             //send(mainTid, receivedMessageFromSerial);
         }
     }
 }
 
-static void startReceiveThread(Tid parentTid, string ip, string port){
+static void startReceiveThread(Tid parentTid, string ip, string port)
+{
     string[] args = new string[2];
     args[0] = ip;
     args[1] = port;
     receiveLoop(args);
 }
 
-int main(string[] args) {
+int main(string[] args)
+{
     int error;
     error = SDL_Init(SDL_INIT_EVERYTHING);
 
