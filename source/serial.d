@@ -2,6 +2,9 @@ import std.stdio;
 import std.algorithm : max;
 import std.concurrency : Tid;
 
+import bindbc.sdl;
+import bindbcLoader = bindbc.loader.sharedlib;
+
 version (Posix)
 {
     import core.sys.posix.sys.select;
@@ -31,10 +34,6 @@ class SerialType
     }
 }
 
-void setupSerial(string[] args)
-{
-}
-
 void sendSerial(string msg)
 {
     //TODO: Send something over serial
@@ -53,7 +52,7 @@ void serialReceiveWorker(Tid parentTid, string serialPortPath)
 immutable(SerialType) getSerial(string[] args)
 {
     return new immutable SerialType("placeHolder");
-    //TODO: Setup serial receive
+    //TODO: Move this to
 
     // If the user didn't provide the path to the port, print usage and exit
     /*

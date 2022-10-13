@@ -8,7 +8,7 @@ import bindbc.sdl;
 import bindbcLoader = bindbc.loader.sharedlib;
 import serialport : SerialPortNonBlk;
 
-import sim, serial, network;
+import serial, network;
 
 void handleReceivedSerial(SerialType msg)
 {
@@ -18,6 +18,11 @@ void handleReceivedSerial(SerialType msg)
 void handleReceivedNetwork(NetworkType msg)
 {
     writeln("Message Received from Network: " ~ msg.toStringz());
+}
+
+void hotkeyPressed(SDL_Keycode key)
+{
+    sendSerial("Hello World");
 }
 
 void eventLoop()
@@ -44,38 +49,44 @@ void eventLoop()
     }
 }
 
-void receiveLoop(string[] args)
+void receiveSerialLoop(Tid parentTid, string serialPort)
 {
-    setupSerial(args);
     while (true)
     {
-        //TODO: setup select to check for received serial, then output it ig?
-        //IDK how select is useful here, cause if there is no incoming serial we wanna do nothing
         //Change to: if theres a serial msg incoming
         if (true)
         {
-            immutable SerialType receivedMessageFromSerial = getSerial(args);
-            //send(mainTid, receivedMessageFromSerial);
+            //Change to: wait for a serial receive
+            //TODO: @will move code from serial to this function
+            immutable SerialType receivedMessageFromSerial = null;
+            send(parentTid, receivedMessageFromSerial);
         }
     }
 }
 
-static void startReceiveThread(Tid parentTid, string ip, string port)
+void receiveNetworkLoop(Tid parentTid, string networkPort)
 {
-    string[] args = new string[2];
-    args[0] = ip;
-    args[1] = port;
-    receiveLoop(args);
+    while (true)
+    {
+        //Change to: if theres a network msg incoming
+        if (true)
+        {
+            //Change to: wait for a network receive
+            immutable NetworkType receivedMessageFromNetwork = null;
+            send(parentTid, receivedMessageFromNetwork);
+        }
+    }
 }
 
+//args: serialPort, networkPort, otherIP
 int main(string[] args)
 {
     int error;
     error = SDL_Init(SDL_INIT_EVERYTHING);
 
     //TODO: Figure out which args are necessary and alter the spawn and the params to account for that
-    spawn(&startReceiveThread, thisTid, args[0], args[1]);
-
+    spawn(&receiveSerialLoop, thisTid, args[0]);
+    spawn(&receiveNetworkLoop, thisTid, args[1]);
     eventLoop();
 
     return 0;
