@@ -1,5 +1,6 @@
 import std.stdio;
 import std.algorithm : max;
+import std.concurrency : Tid;
 
 version (Posix)
 {
@@ -15,10 +16,10 @@ import core.stdc.stdio : perror;
 import serialport : SerialPortNonBlk;
 
 // Wrapper Class for messages sent through serial
-immutable class SerialType {
+class SerialType {
     string message;
 
-    this(string message) {
+    immutable this(string message) {
         this.message = message;
     }
 
@@ -34,12 +35,20 @@ void sendSerial(string msg) {
     //TODO: Send something over serial
 }
 
-SerialType getSerial(string[] args) {
-    //return new SerialType("placeHolder");
+void serialReceiveWorker(Tid parentTid, string serialPortPath) {
+    auto port = new SerialPortNonBlk(serialPortPath, 9600);
+    scope (exit) port.close();
+
+    // loop and read from it...
+    //send(parentTid, new SerialType("whatever"));
+}
+
+immutable(SerialType) getSerial(string[] args) {
+    return new immutable SerialType("placeHolder");
     //TODO: Setup serial receive
 
     // If the user didn't provide the path to the port, print usage and exit
-
+/*
     // Open the port at 9600 baud
     auto port = new SerialPortNonBlk(args[1], 9600);
     // On scope exit, close the handle to the port
@@ -56,7 +65,7 @@ SerialType getSerial(string[] args) {
     int nfds = 0;
     version(Posix)
     {
-        int nfds = max(stdin_fd, port_fd) + 1; // nfds parameter of select
+        nfds = max(stdin_fd, port_fd) + 1; // nfds parameter of select
     }
     while (true)
     {
@@ -148,5 +157,5 @@ SerialType getSerial(string[] args) {
                 stderr.writeln("tried to switch to an invalid state");
             }
         }
-    }
+        }*/
 }

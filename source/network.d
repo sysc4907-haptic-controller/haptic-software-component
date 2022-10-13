@@ -7,7 +7,7 @@ import core.stdc.stdio : perror;
 import serialport : SerialPortNonBlk;
 
 // Wrapper Class for messages sent through network
-immutable class NetworkType {
+class NetworkType {
     string message;
 
     this(string message) {
