@@ -1,82 +1,112 @@
-import std.stdio : write, writeln, readln;
+import std.stdio : write, writeln, readln, stderr;
 import std.string : fromStringz;
 import std.datetime : seconds;
-import std.traits : select;
+import std.variant : Variant;
 import std.concurrency : receiveTimeout, receive, spawn, Tid, thisTid, send;
+import std.file;
 
 import bindbc.sdl;
 import bindbcLoader = bindbc.loader.sharedlib;
-import serialport : SerialPortNonBlk;
+import serialport : SerialPort;
 
-import sim, serial, network;
-
-void handleReceivedSerial(SerialType msg)
-{
-    writeln("Message Received from Serial: " ~ msg.toStringz());
-}
-
-void handleReceivedNetwork(NetworkType msg)
-{
-    writeln("Message Received from Network: " ~ msg.toStringz());
-}
-
-void eventLoop()
-{
-    bool done = false;
-    SDL_Event event;
-
-    while (!done && SDL_PollEvent(&event))
-    {
-        switch (event.type)
-        {
-        case SDL_KEYDOWN:
-            hotkeyPressed(event.key.keysym.sym);
-            break;
-        case SDL_QUIT:
-            done = true;
-            break;
-        default:
-            break;
-        }
-        (-1.seconds).receiveTimeout((SerialType msg) {
-            handleReceivedSerial(msg);
-        }, (NetworkType msg) { handleReceivedNetwork(msg); });
-    }
-}
-
-void receiveLoop(string[] args)
-{
-    setupSerial(args);
-    while (true)
-    {
-        //TODO: setup select to check for received serial, then output it ig?
-        //IDK how select is useful here, cause if there is no incoming serial we wanna do nothing
-        //Change to: if theres a serial msg incoming
-        if (true)
-        {
-            immutable SerialType receivedMessageFromSerial = getSerial(args);
-            //send(mainTid, receivedMessageFromSerial);
-        }
-    }
-}
-
-static void startReceiveThread(Tid parentTid, string ip, string port)
-{
-    string[] args = new string[2];
-    args[0] = ip;
-    args[1] = port;
-    receiveLoop(args);
-}
+import serial : serialReceiveWorker, SerialMessage;
 
 int main(string[] args)
 {
-    int error;
-    error = SDL_Init(SDL_INIT_EVERYTHING);
+    if (args.length < 2)
+    {
+        stderr.writeln("usage: project-monitor /path/to/port");
+        return 1;
+    }
 
-    //TODO: Figure out which args are necessary and alter the spawn and the params to account for that
-    spawn(&startReceiveThread, thisTid, args[0], args[1]);
+    auto sdlLoadResult = loadSDL();
+    auto sdlTTFLoadResult = loadSDLTTF();
 
-    eventLoop();
+    auto error = SDL_Init(SDL_INIT_VIDEO);
 
-    return 0;
+    const auto windowWidth = 1280;
+    const auto windowHeight = 780;
+
+    auto window = SDL_CreateWindow("2-DOF Hybrid Haptic Device",
+            SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, windowWidth, windowHeight, 0);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+
+    auto renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    scope (exit)
+    {
+        SDL_DestroyRenderer(renderer);
+    }
+
+    shared serialport = new shared SerialPort(args[1], 115200);
+    // TODO: See if we can get this to work
+    // scope (exit)
+    // {
+    //     serialport.close();
+    // }
+
+    error = TTF_Init();
+    auto dejaVuSans = TTF_OpenFont("DejaVuSans.ttf", 48);
+    scope (exit)
+    {
+        TTF_CloseFont(dejaVuSans);
+    }
+
+    auto white = SDL_Color(255, 255, 255);
+
+    auto ledOnSurface = TTF_RenderUTF8_Solid(dejaVuSans, "Arduino says LED is ON.", white);
+    auto ledOnTexture = SDL_CreateTextureFromSurface(renderer, ledOnSurface);
+    auto ledOnRect = SDL_Rect(0, 0, ledOnSurface.w, ledOnSurface.h);
+    scope (exit)
+    {
+        SDL_DestroyTexture(ledOnTexture);
+        SDL_FreeSurface(ledOnSurface);
+    }
+
+    auto ledOffSurface = TTF_RenderUTF8_Solid(dejaVuSans, "Arduino says LED is OFF.", white);
+    auto ledOffTexture = SDL_CreateTextureFromSurface(renderer, ledOffSurface);
+    auto ledOffRect = SDL_Rect(0, 0, ledOffSurface.w, ledOffSurface.h);
+    scope (exit)
+    {
+        SDL_DestroyTexture(ledOffTexture);
+        SDL_FreeSurface(ledOffSurface);
+    }
+
+    spawn(&serialReceiveWorker, serialport);
+
+    bool ledOn = false;
+    while (true)
+    {
+        SDL_Event event;
+        while (SDL_PollEvent(&event))
+        {
+            if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN
+                    && event.key.keysym.sym == SDLK_q))
+            {
+                return 0;
+            }
+
+            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_g)
+            {
+                serialport.write([ledOn ? 1: 2]);
+            }
+        }
+
+        receiveTimeout(-1.seconds, (immutable SerialMessage message) {
+            ledOn = message.message[0] == 2;
+        });
+
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
+        SDL_RenderClear(renderer);
+
+        if (ledOn)
+        {
+            SDL_RenderCopy(renderer, ledOnTexture, null, &ledOnRect);
+        }
+        else
+        {
+            SDL_RenderCopy(renderer, ledOffTexture, null, &ledOffRect);
+        }
+
+        SDL_RenderPresent(renderer);
+    }
 }

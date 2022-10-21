@@ -1,0 +1,8 @@
+{
+	"fileVersion": 1,
+	"versions": {
+		"bindbc-loader": "1.0.1",
+		"bindbc-sdl": "1.2.1",
+		"serialport": "2.2.3"
+	}
+}
