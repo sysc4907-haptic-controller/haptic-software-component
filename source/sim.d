@@ -1,5 +1,8 @@
 import bindbc.sdl;
 import std.math;
+import std.datetime;
+import std.stdio;
+import std.format;
 
 class Vector
 {
@@ -180,5 +183,84 @@ class ImpassableElement : SimulationElement
         default:
             return new ForceVector(0, 0);
         }
+    }
+}
+
+class EndEffector
+{
+    // The previous position (x,y) of the end effector
+    public int prevX, prevY;
+
+    // The current position (x,y) of the end effector
+    public int x, y;
+
+    // The previous and current time
+    SysTime prevTime, currTime;
+
+    this()
+    {
+        SDL_GetMouseState(&x, &y);
+        currTime = Clock.currTime();
+    }
+
+    // Updates the position and time of the end effector accordingly
+    void update()
+    {
+        prevX = x;
+        prevY = y;
+        prevTime = currTime;
+        currTime = Clock.currTime();
+        SDL_GetMouseState(&x, &y);
+    }
+
+    // Calculate's the end effector's acceleration
+    // TODO: Need to calculate/store initial velocity then calclate acceleration
+    int calculateAcceleration()
+    {
+        float displacement = sqrt(cast(float) pow(x - prevX, 2) + cast(float) pow(y - prevY, 2));
+        auto deltaTime = (currTime - prevTime).total!"nsecs";
+
+        //writeln(format("Dis X: %f | Time (ns): %f", displacement, deltaTime));
+        return 1;
+    }
+
+    // Detects collision between end effector and an element
+    bool detectCollision(SimulationElement element)
+    {
+        if (cast(ImpassableElement) element)
+        {
+            // First two if-statements check if the end-effector is inside the element
+            if (x > element.rect.x && x < (element.rect.x + element.rect.w))
+            {
+                if (y > element.rect.y && y < (element.rect.y + element.rect.h))
+                {
+                    // End effector is along the left edge
+                    if (x > element.rect.x && prevX <= element.rect.x)
+                    {
+                        x = element.rect.x;
+                    }
+                    // Right edge
+                    if (x < element.rect.x + element.rect.w
+                            && prevX >= element.rect.x + element.rect.w)
+                    {
+                        x = element.rect.x + element.rect.w;
+                    }
+                    // Upper edge
+                    if (y > element.rect.y && prevY <= element.rect.y)
+                    {
+                        y = element.rect.y;
+                    }
+                    // Lower edge
+                    if (y < element.rect.y + element.rect.h
+                            && prevY >= element.rect.y + element.rect.h)
+                    {
+                        y = element.rect.y + element.rect.h;
+                    }
+
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 }

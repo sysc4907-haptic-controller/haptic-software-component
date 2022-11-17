@@ -5,6 +5,7 @@ import std.variant : Variant;
 import std.concurrency : receiveTimeout, receive, spawn, Tid, thisTid, send;
 import std.file;
 import std.conv : to;
+import std.format;
 
 import bindbc.sdl;
 import bindbcLoader = bindbc.loader.sharedlib;
@@ -22,15 +23,35 @@ int main(string[] args)
     }
 
     auto sdlLoadResult = loadSDL();
+
+    if (sdlLoadResult != sdlSupport)
+    {
+        writeln("Failed to load SDL.");
+
+        foreach (error; bindbcLoader.errors)
+        {
+            writeln("Loader error: ", fromStringz(error.error), ": ", fromStringz(error.message));
+        }
+        return 1;
+    }
+
     auto sdlTTFLoadResult = loadSDLTTF();
 
     auto error = SDL_Init(SDL_INIT_VIDEO);
 
+    // Create 1300x1000 window - size can be adjusted in future
     const auto windowWidth = 1300;
     const auto windowHeight = 1000;
 
     auto window = SDL_CreateWindow("2-DOF Hybrid Haptic Device",
             SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, windowWidth, windowHeight, 0);
+
+    if (!window)
+    {
+        writeln("Could not create window: ", SDL_GetError());
+        return 1;
+    }
+
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 
     auto renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
@@ -38,6 +59,13 @@ int main(string[] args)
     {
         SDL_DestroyRenderer(renderer);
     }
+
+    if (!renderer)
+    {
+        writeln("Could not create renderer: ", SDL_GetError());
+        return 1;
+    }
+
     shared serialport = new shared SerialPort(args[1], 115200);
     // TODO: See if we can get this to work
     // scope (exit)
@@ -46,10 +74,23 @@ int main(string[] args)
     // }
 
     error = TTF_Init();
+
+    if (error != 0)
+    {
+        writeln("Could not initialize SDL_ttf: ", TTF_GetError());
+        return 1;
+    }
+
     auto dejaVuSans = TTF_OpenFont("DejaVuSans.ttf", 48);
     scope (exit)
     {
         TTF_CloseFont(dejaVuSans);
+    }
+
+    if (!dejaVuSans)
+    {
+        writeln("Could not create font: ", TTF_GetError());
+        return 1;
     }
     /*
     auto white = SDL_Color(255, 255, 255);
@@ -74,25 +115,27 @@ int main(string[] args)
 
     spawn(&serialReceiveWorker, serialport);
 
+    //SDL_ShowCursor(false);
     auto black = SDL_Color(0, 0, 0);
     auto red = SDL_Color(255, 0, 0);
     auto blue = SDL_Color(0, 0, 255);
     auto orange = SDL_Color(255, 165, 0);
 
+    // List of the elements a part of the system (walls, fields, surfaces)
     SimulationElement[] elements = [
         //Outside Walls
-        new ImpassableElement(289, 545, 249, 3, black),
-        new ImpassableElement(535, 395, 3, 153, black),
-        new ImpassableElement(535, 395, 323, 3, black),
-        new ImpassableElement(855, 395, 3, 153, black),
-        new ImpassableElement(855, 544, 224, 4, black),
-        new ImpassableElement(1076, 544, 3, 267, black),
-        new ImpassableElement(289, 807, 790, 3, black),
-        new ImpassableElement(289, 545, 3, 265, black),
+        new ImpassableElement(289, 545, 249, 30, black),
+        new ImpassableElement(535, 395, 30, 153, black),
+        new ImpassableElement(535, 395, 323, 30, black),
+        new ImpassableElement(855, 395, 30, 153, black),
+        new ImpassableElement(855, 544, 224, 30, black),
+        new ImpassableElement(1076, 544, 30, 267, black),
+        new ImpassableElement(289, 807, 790, 30, black),
+        new ImpassableElement(289, 545, 30, 265, black),
 
         //Inside Walls
-        new ImpassableElement(678, 441, 4, 146, black),
-        new ImpassableElement(572, 688, 232, 4, black),
+        new ImpassableElement(678, 441, 30, 146, black),
+        new ImpassableElement(572, 688, 232, 30, black),
         new ImpassableElement(918, 637, 32, 42, black),
 
         //Magnet-Walls
@@ -109,18 +152,17 @@ int main(string[] args)
         new MagnetFieldElement(918, 679, 32, 30, blue, 10, MagnetFieldElement.POLARITY.PULL)
     ];
 
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
+    // Create the end effector representation in simulation
+    EndEffector endEffector = new EndEffector();
+
     auto background = SDL_Rect(0, 0, 1300, 1000);
-    SDL_RenderFillRect(renderer, &background);
-    SDL_RenderClear(renderer);
-    foreach (SimulationElement element; elements)
-    {
-        SDL_SetRenderDrawColor(renderer, element.colour.r, element.colour.g,
-                element.colour.b, SDL_ALPHA_OPAQUE);
-        SDL_RenderFillRect(renderer, &element.rect);
-    }
-    SDL_RenderPresent(renderer);
+
+    // Create visual representation of the end effector (green square)
+    auto cursor = SDL_Rect(endEffector.x, endEffector.y, 10, 10);
+
     bool ledOn = false;
+
+    // Event Loop
     while (true)
     {
         SDL_Event event;
@@ -142,12 +184,51 @@ int main(string[] args)
             ledOn = message.message[0] == 2;
         });
 
-        //TODO: @will instead of these use the mouse pos/arrows or whatever u choose to use
         // This setup is pretty janky, we definitely wanna change it to converging forces eventually
-        auto currentPosition = new PositionVector(0, 0);
+        auto currentPosition = new PositionVector(endEffector.x, endEffector.y);
         auto currentForce = new ForceVector(0, 0);
 
         ForceVector totalForce = new ForceVector(0, 0);
+
+        // Clear render with a white background
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
+        SDL_RenderFillRect(renderer, &background);
+        SDL_RenderClear(renderer);
+
+        // Update the end effector's data (position, time)
+        endEffector.update();
+
+        // Draw each simulation element
+        foreach (SimulationElement element; elements)
+        {
+            SDL_SetRenderDrawColor(renderer, element.colour.r,
+                    element.colour.g, element.colour.b, SDL_ALPHA_OPAQUE);
+            SDL_RenderFillRect(renderer, &element.rect);
+
+            // If a collision is detected between endeffector and a sim. element,
+            //  adjust the cursor location such that it doesn't disconnect with the visual element
+            if (endEffector.detectCollision(element))
+            {
+                SDL_WarpMouseInWindow(window, endEffector.x, endEffector.y);
+            }
+        }
+
+        // Update the cursor's x and y
+        cursor.x = endEffector.x;
+        cursor.y = endEffector.y;
+
+        // Calculate the acceleration of the end effector
+        // TODO: Not working - delta change is iffy
+        endEffector.calculateAcceleration();
+
+        // Draw the cursor
+        SDL_SetRenderDrawColor(renderer, 0, 255, 0, SDL_ALPHA_OPAQUE);
+        SDL_RenderFillRect(renderer, &cursor);
+
+        // "Load" all elements to the render
+        SDL_RenderPresent(renderer);
+
+        // Check the magnetic forces
         foreach (SimulationElement element; elements)
         {
             if (cast(MagnetFieldElement) element)
@@ -159,6 +240,8 @@ int main(string[] args)
                 currentForce.y += force.y;
             }
         }
+
+        // Check the reactive forces from viscous elements
         foreach (SimulationElement element; elements)
         {
             if (cast(ViscousElement) element)
@@ -170,6 +253,8 @@ int main(string[] args)
                 currentForce.y += force.y;
             }
         }
+
+        // Check normal forces from impassable elements
         foreach (SimulationElement element; elements)
         {
             if (cast(ImpassableElement) element)
