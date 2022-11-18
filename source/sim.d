@@ -3,6 +3,7 @@ import std.math;
 import std.datetime;
 import std.stdio;
 import std.format;
+import core.time : MonoTime;
 
 class Vector
 {
@@ -29,6 +30,14 @@ class ForceVector : Vector
 }
 
 class PositionVector : Vector
+{
+    this(double x, double y)
+    {
+        super(x, y);
+    }
+}
+
+class VelocityVector : Vector
 {
     this(double x, double y)
     {
@@ -75,9 +84,9 @@ class MagnetFieldElement : SimulationElement
 
     override public ForceVector force(PositionVector endEffectorPos, ForceVector incEndEffectorForce)
     {
-        auto midX = (rect.x + rect.w) / 2;
-        auto midY = (rect.y + rect.h) / 2;
-        auto dist = sqrt(pow(abs(midX - endEffectorPos.x), 2) + pow(abs(midY - endEffectorPos.y), 2));
+        auto midX = (rect.x + rect.x + rect.w) / 2;
+        auto midY = (rect.y + rect.y + rect.h) / 2;
+        auto dist = sqrt(pow(midX - endEffectorPos.x, 2) + pow(midY - endEffectorPos.y, 2));
         auto angle = atan2(midY - endEffectorPos.y, midX - endEffectorPos.x);
         if (polarity == POLARITY.PULL)
         {
@@ -161,7 +170,7 @@ class ImpassableElement : SimulationElement
         return [EDGE.LEFT, EDGE.RIGHT, EDGE.TOP, EDGE.BOTTOM][edge];
     }
 
-    //ASSUMES FORCES ARE POSTIVE UP + RIGHT AND NEGATIVE DOWN + LEFT
+    //ASSUMES FORCES ARE POSTIVE DOWN + RIGHT AND NEGATIVE UP + LEFT
     //ISSUE: If we take all force vectors and add them together, its possible this won't fully negate.
     override public ForceVector force(PositionVector endEffectorPos, ForceVector incEndEffectorForce)
     {
@@ -169,16 +178,16 @@ class ImpassableElement : SimulationElement
         {
         case EDGE.TOP:
             return new ForceVector(0, incEndEffectorForce.y < 0
-                    ? -incEndEffectorForce.y : 0);
+                    ? -1*incEndEffectorForce.y : 0);
         case EDGE.BOTTOM:
             return new ForceVector(0, incEndEffectorForce.y > 0
-                    ? -incEndEffectorForce.y : 0);
+                    ? -1*incEndEffectorForce.y : 0);
         case EDGE.LEFT:
             return new ForceVector(incEndEffectorForce.x > 0
-                    ? -incEndEffectorForce.y : 0, 0);
+                    ? -1*incEndEffectorForce.y : 0, 0);
         case EDGE.RIGHT:
             return new ForceVector(incEndEffectorForce.x < 0
-                    ? -incEndEffectorForce.y : 0, 0);
+                    ? -1*incEndEffectorForce.y : 0, 0);
         case EDGE.NONE:
         default:
             return new ForceVector(0, 0);
@@ -194,13 +203,16 @@ class EndEffector
     // The current position (x,y) of the end effector
     public int x, y;
 
+    public VelocityVector prevVelocity, currVelocity;
+
     // The previous and current time
-    SysTime prevTime, currTime;
+    MonoTime prevTime, currTime;
 
     this()
     {
         SDL_GetMouseState(&x, &y);
-        currTime = Clock.currTime();
+        currTime = MonoTime.currTime();
+        currVelocity = new VelocityVector(0,0);
     }
 
     // Updates the position and time of the end effector accordingly
@@ -209,19 +221,29 @@ class EndEffector
         prevX = x;
         prevY = y;
         prevTime = currTime;
-        currTime = Clock.currTime();
+        currTime = MonoTime.currTime();
         SDL_GetMouseState(&x, &y);
+        prevVelocity = currVelocity;
+        double deltaTime = (currTime - prevTime).total!"msecs";
+        //writeln(format("Dis X: %f | Dis Y: %f | Time (ns): %f", x-prevX, y-prevY, deltaTime));
+        currVelocity = new VelocityVector((x - prevX)*0.1/deltaTime, (y - prevY)*0.1/deltaTime);
     }
 
     // Calculate's the end effector's acceleration
     // TODO: Need to calculate/store initial velocity then calclate acceleration
-    int calculateAcceleration()
+    ForceVector calculateForce()
     {
-        float displacement = sqrt(cast(float) pow(x - prevX, 2) + cast(float) pow(y - prevY, 2));
-        auto deltaTime = (currTime - prevTime).total!"nsecs";
+        //note: acc is mm/ms^2 -> m/s^2
+        const MASS = 1; //1kg
+        //writeln(format("CurrVelo X: %f | CurrVelo Y: %f || PrevVelo X: %f | PrevVelo Y: %f", currVelocity.x, currVelocity.y, prevVelocity.x, prevVelocity.y));
 
-        //writeln(format("Dis X: %f | Time (ns): %f", displacement, deltaTime));
-        return 1;
+        double deltaTime = (currTime - prevTime).total!"msecs";
+        auto accX = (currVelocity.x - prevVelocity.x)/deltaTime;
+        auto accY = (currVelocity.y - prevVelocity.y)/deltaTime;
+        //writeln(format("**Force X: %f | Force Y: %f", accX*10, accY*10));
+        return new ForceVector(accX*MASS, accY*MASS);
+
+
     }
 
     // Detects collision between end effector and an element

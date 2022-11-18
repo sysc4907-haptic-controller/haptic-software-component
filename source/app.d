@@ -123,6 +123,15 @@ int main(string[] args)
 
     // List of the elements a part of the system (walls, fields, surfaces)
     SimulationElement[] elements = [
+        //Honey
+        new ViscousElement(292, 548, 144, 259, orange, 0.7),
+
+        //Magnet Fields
+        //Note: Strengths may need to be raised a ton or lowered a ton. I honestly dont know.
+        new MagnetFieldElement(918, 607, 32, 30, red, 10,
+                MagnetFieldElement.POLARITY.PUSH),
+        new MagnetFieldElement(918, 679, 32, 30, blue, 10, MagnetFieldElement.POLARITY.PULL),
+
         //Outside Walls
         new ImpassableElement(289, 545, 249, 30, black),
         new ImpassableElement(535, 395, 30, 153, black),
@@ -140,16 +149,8 @@ int main(string[] args)
 
         //Magnet-Walls
         new ImpassableElement(918, 607, 32, 30, red),
-        new ImpassableElement(918, 679, 32, 30, blue),
+        new ImpassableElement(918, 679, 32, 30, blue)
 
-        //Honey
-        new ViscousElement(292, 548, 144, 259, orange, 0.7),
-
-        //Magnet Fields
-        //Note: Strengths may need to be raised a ton or lowered a ton. I honestly dont know.
-        new MagnetFieldElement(918, 607, 32, 30, red, 10,
-                MagnetFieldElement.POLARITY.PUSH),
-        new MagnetFieldElement(918, 679, 32, 30, blue, 10, MagnetFieldElement.POLARITY.PULL)
     ];
 
     // Create the end effector representation in simulation
@@ -184,19 +185,14 @@ int main(string[] args)
             ledOn = message.message[0] == 2;
         });
 
-        // This setup is pretty janky, we definitely wanna change it to converging forces eventually
-        auto currentPosition = new PositionVector(endEffector.x, endEffector.y);
-        auto currentForce = new ForceVector(0, 0);
 
-        ForceVector totalForce = new ForceVector(0, 0);
 
         // Clear render with a white background
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
         SDL_RenderFillRect(renderer, &background);
         SDL_RenderClear(renderer);
 
-        // Update the end effector's data (position, time)
-        endEffector.update();
+
 
         // Draw each simulation element
         foreach (SimulationElement element; elements)
@@ -217,9 +213,14 @@ int main(string[] args)
         cursor.x = endEffector.x;
         cursor.y = endEffector.y;
 
-        // Calculate the acceleration of the end effector
-        // TODO: Not working - delta change is iffy
-        endEffector.calculateAcceleration();
+        // Update the end effector's data (position, time)
+        endEffector.update();
+
+        // This setup is pretty janky, we definitely wanna change it to converging forces eventually
+        auto currentPosition = new PositionVector(endEffector.x, endEffector.y);
+        auto totalForce = new ForceVector(0, 0);
+        auto currentForce = endEffector.calculateForce();
+        //writeln(format("Force X: %f | ForceY: %f", currentForce.x, currentForce.y));
 
         // Draw the cursor
         SDL_SetRenderDrawColor(renderer, 0, 255, 0, SDL_ALPHA_OPAQUE);
@@ -265,8 +266,8 @@ int main(string[] args)
             }
         }
         if (!totalForce.isEmpty())
-            stderr.writeln("Horizontal Force: " ~ to!string(
-                    totalForce.x) ~ " | Vertical Force: " ~ to!string(totalForce.y));
+            stderr.writeln("Horizontal Force (N): " ~ to!string(
+                    totalForce.x) ~ " | Vertical Force(N): " ~ to!string(totalForce.y));
 
         /*
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
