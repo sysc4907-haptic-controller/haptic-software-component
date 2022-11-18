@@ -226,15 +226,14 @@ class EndEffector
         prevVelocity = currVelocity;
         double deltaTime = (currTime - prevTime).total!"msecs";
         //writeln(format("Dis X: %f | Dis Y: %f | Time (ns): %f", x-prevX, y-prevY, deltaTime));
-        currVelocity = new VelocityVector((x - prevX)*0.1/deltaTime, (y - prevY)*0.1/deltaTime);
+        currVelocity = new VelocityVector((x - prevX)*0.1*1000/deltaTime, (y - prevY)*0.1*1000/deltaTime);
     }
 
     // Calculate's the end effector's acceleration
-    // TODO: Need to calculate/store initial velocity then calclate acceleration
     ForceVector calculateForce()
     {
-        //note: acc is mm/ms^2 -> m/s^2
-        const MASS = 1; //1kg
+        //note: acc is mm/ms*s -> m/s^2
+        const MASS = 0.1; //1kg
         //writeln(format("CurrVelo X: %f | CurrVelo Y: %f || PrevVelo X: %f | PrevVelo Y: %f", currVelocity.x, currVelocity.y, prevVelocity.x, prevVelocity.y));
 
         double deltaTime = (currTime - prevTime).total!"msecs";
