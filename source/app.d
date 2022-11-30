@@ -134,11 +134,11 @@ int main(string[] args)
 
         //Outside Walls
         new ImpassableElement(289, 545, 249, 30, black),
-        new ImpassableElement(535, 395, 30, 153, black),
+        new ImpassableElement(535, 395, 30, 180, black),
         new ImpassableElement(535, 395, 323, 30, black),
         new ImpassableElement(855, 395, 30, 153, black),
         new ImpassableElement(855, 544, 224, 30, black),
-        new ImpassableElement(1076, 544, 30, 267, black),
+        new ImpassableElement(1076, 544, 30, 293, black),
         new ImpassableElement(289, 807, 790, 30, black),
         new ImpassableElement(289, 545, 30, 265, black),
 
@@ -159,7 +159,7 @@ int main(string[] args)
     auto background = SDL_Rect(0, 0, 1300, 1000);
 
     // Create visual representation of the end effector (green square)
-    auto cursor = SDL_Rect(endEffector.x, endEffector.y, 10, 10);
+    // auto cursor = SDL_Rect(endEffector.x, endEffector.y, 10, 10);
 
     bool ledOn = false;
 
@@ -210,8 +210,8 @@ int main(string[] args)
         }
 
         // Update the cursor's x and y
-        cursor.x = endEffector.x;
-        cursor.y = endEffector.y;
+        // cursor.x = endEffector.x;
+        // cursor.y = endEffector.y;
 
         // Update the end effector's data (position, time)
         endEffector.update();
@@ -224,7 +224,7 @@ int main(string[] args)
 
         // Draw the cursor
         SDL_SetRenderDrawColor(renderer, 0, 255, 0, SDL_ALPHA_OPAQUE);
-        SDL_RenderFillRect(renderer, &cursor);
+        endEffector.draw(renderer);
 
         // "Load" all elements to the render
         SDL_RenderPresent(renderer);

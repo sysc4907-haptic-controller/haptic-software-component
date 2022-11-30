@@ -1,5 +1,6 @@
 import bindbc.sdl;
 import std.math;
+import std.algorithm : max, min;
 import std.datetime;
 import std.stdio;
 import std.format;
@@ -17,8 +18,9 @@ class Vector
 
     public bool isEmpty()
     {
-        return x < 0.001 && y < 0.001;
+        return abs(x) < 0.001 && abs(y) < 0.001;
     }
+
 }
 
 class ForceVector : Vector
@@ -177,17 +179,17 @@ class ImpassableElement : SimulationElement
         switch (alongWall(endEffectorPos))
         {
         case EDGE.TOP:
-            return new ForceVector(0, incEndEffectorForce.y < 0
-                    ? -1*incEndEffectorForce.y : 0);
-        case EDGE.BOTTOM:
             return new ForceVector(0, incEndEffectorForce.y > 0
-                    ? -1*incEndEffectorForce.y : 0);
+                    ? -incEndEffectorForce.y : 0);
+        case EDGE.BOTTOM:
+            return new ForceVector(0, incEndEffectorForce.y < 0
+                    ? -incEndEffectorForce.y : 0);
         case EDGE.LEFT:
             return new ForceVector(incEndEffectorForce.x > 0
-                    ? -1*incEndEffectorForce.y : 0, 0);
+                    ? -incEndEffectorForce.x : 0, 0);
         case EDGE.RIGHT:
             return new ForceVector(incEndEffectorForce.x < 0
-                    ? -1*incEndEffectorForce.y : 0, 0);
+                    ? -incEndEffectorForce.x : 0, 0);
         case EDGE.NONE:
         default:
             return new ForceVector(0, 0);
@@ -202,6 +204,8 @@ class EndEffector
 
     // The current position (x,y) of the end effector
     public int x, y;
+
+    public int RADIUS = 8;
 
     public VelocityVector prevVelocity, currVelocity;
 
@@ -250,38 +254,61 @@ class EndEffector
     {
         if (cast(ImpassableElement) element)
         {
-            // First two if-statements check if the end-effector is inside the element
-            if (x > element.rect.x && x < (element.rect.x + element.rect.w))
-            {
-                if (y > element.rect.y && y < (element.rect.y + element.rect.h))
-                {
-                    // End effector is along the left edge
-                    if (x > element.rect.x && prevX <= element.rect.x)
-                    {
-                        x = element.rect.x;
-                    }
-                    // Right edge
-                    if (x < element.rect.x + element.rect.w
-                            && prevX >= element.rect.x + element.rect.w)
-                    {
-                        x = element.rect.x + element.rect.w;
-                    }
-                    // Upper edge
-                    if (y > element.rect.y && prevY <= element.rect.y)
-                    {
-                        y = element.rect.y;
-                    }
-                    // Lower edge
-                    if (y < element.rect.y + element.rect.h
-                            && prevY >= element.rect.y + element.rect.h)
-                    {
-                        y = element.rect.y + element.rect.h;
-                    }
-
-                    return true;
-                }
+            PositionVector elemCenter = new PositionVector(
+                element.rect.x + element.rect.w/2.0,
+                element.rect.y + element.rect.h/2.0);
+            PositionVector difference = new PositionVector(
+                x - elemCenter.x,
+                y - elemCenter.y);
+            PositionVector clamped = new PositionVector(
+                max(-element.rect.w/2.0, min(element.rect.w/2.0, difference.x)),
+                max(-element.rect.h/2.0, min(element.rect.h/2.0, difference.y)));
+            difference = new PositionVector(
+                elemCenter.x + clamped.x - x,
+                elemCenter.y + clamped.y - y
+            );
+            if(sqrt(difference.x*difference.x + difference.y*difference.y) < RADIUS){
+                x = prevX;
+                y = prevY;
+                return true;
             }
+
         }
         return false;
+    }
+
+    public void draw(SDL_Renderer *renderer) {
+        int updatingX = RADIUS - 1;
+        int updatingY = 0;
+        int tx = 1;
+        int ty = 1;
+        int error = tx - RADIUS*2;
+
+        while (updatingX >= updatingY)
+        {
+            //  Each of the following renders an octant of the circle
+            SDL_RenderDrawPoint(renderer, x + updatingX, y - updatingY);
+            SDL_RenderDrawPoint(renderer, x + updatingX, y + updatingY);
+            SDL_RenderDrawPoint(renderer, x - updatingX, y - updatingY);
+            SDL_RenderDrawPoint(renderer, x - updatingX, y + updatingY);
+            SDL_RenderDrawPoint(renderer, x + updatingY, y - updatingX);
+            SDL_RenderDrawPoint(renderer, x + updatingY, y + updatingX);
+            SDL_RenderDrawPoint(renderer, x - updatingY, y - updatingX);
+            SDL_RenderDrawPoint(renderer, x - updatingY, y + updatingX);
+
+            if (error <= 0)
+            {
+                ++updatingY;
+                error += ty;
+                ty += 2;
+            }
+
+            if (error > 0)
+            {
+                --updatingX;
+                tx += 2;
+                error += (tx - RADIUS*2);
+            }
+        }
     }
 }
