@@ -61,6 +61,13 @@ class SimulationElement
     }
 
     abstract public ForceVector force(PositionVector endEffectorPos, ForceVector incEndEffectorForce);
+
+    // Draw function for the simulation element
+    public void draw(SDL_Renderer* renderer)
+    {
+        SDL_SetRenderDrawColor(renderer, colour.r, colour.g, colour.b, SDL_ALPHA_OPAQUE);
+        SDL_RenderFillRect(renderer, &rect);
+    }
 }
 
 class MagnetFieldElement : SimulationElement
@@ -212,25 +219,27 @@ class EndEffector
     // The previous and current time
     MonoTime prevTime, currTime;
 
-    this()
+    this(int mouseX, int mouseY)
     {
-        SDL_GetMouseState(&x, &y);
+        x = mouseX;
+        y = mouseY;
         currTime = MonoTime.currTime();
-        currVelocity = new VelocityVector(0,0);
+        currVelocity = new VelocityVector(0, 0);
     }
 
     // Updates the position and time of the end effector accordingly
-    void update()
+    void update(int mouseX, int mouseY)
     {
         prevX = x;
         prevY = y;
         prevTime = currTime;
         currTime = MonoTime.currTime();
-        SDL_GetMouseState(&x, &y);
+        x = mouseX;
+        y = mouseY;
         prevVelocity = currVelocity;
         double deltaTime = (currTime - prevTime).total!"msecs";
-        //writeln(format("Dis X: %f | Dis Y: %f | Time (ns): %f", x-prevX, y-prevY, deltaTime));
-        currVelocity = new VelocityVector((x - prevX)*0.1*1000/deltaTime, (y - prevY)*0.1*1000/deltaTime);
+        currVelocity = new VelocityVector((x - prevX) * 0.1 * 1000 / deltaTime,
+                (y - prevY) * 0.1 * 1000 / deltaTime);
     }
 
     // Calculate's the end effector's acceleration
@@ -238,15 +247,11 @@ class EndEffector
     {
         //note: acc is mm/ms*s -> m/s^2
         const MASS = 0.1; //1kg
-        //writeln(format("CurrVelo X: %f | CurrVelo Y: %f || PrevVelo X: %f | PrevVelo Y: %f", currVelocity.x, currVelocity.y, prevVelocity.x, prevVelocity.y));
 
         double deltaTime = (currTime - prevTime).total!"msecs";
-        auto accX = (currVelocity.x - prevVelocity.x)/deltaTime;
-        auto accY = (currVelocity.y - prevVelocity.y)/deltaTime;
-        //writeln(format("**Force X: %f | Force Y: %f", accX*10, accY*10));
-        return new ForceVector(accX*MASS, accY*MASS);
-
-
+        auto accX = (currVelocity.x - prevVelocity.x) / deltaTime;
+        auto accY = (currVelocity.y - prevVelocity.y) / deltaTime;
+        return new ForceVector(accX * MASS, accY * MASS);
     }
 
     // Detects collision between end effector and an element
@@ -254,35 +259,31 @@ class EndEffector
     {
         if (cast(ImpassableElement) element)
         {
-            PositionVector elemCenter = new PositionVector(
-                element.rect.x + element.rect.w/2.0,
-                element.rect.y + element.rect.h/2.0);
-            PositionVector difference = new PositionVector(
-                x - elemCenter.x,
-                y - elemCenter.y);
-            PositionVector clamped = new PositionVector(
-                max(-element.rect.w/2.0, min(element.rect.w/2.0, difference.x)),
-                max(-element.rect.h/2.0, min(element.rect.h/2.0, difference.y)));
-            difference = new PositionVector(
-                elemCenter.x + clamped.x - x,
-                elemCenter.y + clamped.y - y
-            );
-            if(sqrt(difference.x*difference.x + difference.y*difference.y) < RADIUS){
+            PositionVector elemCenter = new PositionVector(element.rect.x + element.rect.w / 2.0,
+                    element.rect.y + element.rect.h / 2.0);
+            PositionVector difference = new PositionVector(x - elemCenter.x, y - elemCenter.y);
+            PositionVector clamped = new PositionVector(max(-element.rect.w / 2.0,
+                    min(element.rect.w / 2.0, difference.x)), max(-element.rect.h / 2.0,
+                    min(element.rect.h / 2.0, difference.y)));
+            difference = new PositionVector(elemCenter.x + clamped.x - x,
+                    elemCenter.y + clamped.y - y);
+            if (sqrt(difference.x * difference.x + difference.y * difference.y) < RADIUS)
+            {
                 x = prevX;
                 y = prevY;
                 return true;
             }
-
         }
         return false;
     }
 
-    public void draw(SDL_Renderer *renderer) {
+    public void draw(SDL_Renderer* renderer)
+    {
         int updatingX = RADIUS - 1;
         int updatingY = 0;
         int tx = 1;
         int ty = 1;
-        int error = tx - RADIUS*2;
+        int error = tx - RADIUS * 2;
 
         while (updatingX >= updatingY)
         {
@@ -302,12 +303,11 @@ class EndEffector
                 error += ty;
                 ty += 2;
             }
-
             if (error > 0)
             {
                 --updatingX;
                 tx += 2;
-                error += (tx - RADIUS*2);
+                error += (tx - RADIUS * 2);
             }
         }
     }

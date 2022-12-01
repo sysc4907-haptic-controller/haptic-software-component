@@ -37,6 +37,17 @@ int main(string[] args)
 
     auto sdlTTFLoadResult = loadSDLTTF();
 
+    if (sdlTTFLoadResult != sdlTTFSupport)
+    {
+        writeln("Failed to load SDL TTF.");
+
+        foreach (error; bindbcLoader.errors)
+        {
+            writeln("Loader error: ", fromStringz(error.error), ": ", fromStringz(error.message));
+        }
+        return 1;
+    }
+
     auto error = SDL_Init(SDL_INIT_VIDEO);
 
     // Create 1300x1000 window - size can be adjusted in future
@@ -55,15 +66,16 @@ int main(string[] args)
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
 
     auto renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    scope (exit)
-    {
-        SDL_DestroyRenderer(renderer);
-    }
 
     if (!renderer)
     {
         writeln("Could not create renderer: ", SDL_GetError());
         return 1;
+    }
+
+    scope (exit)
+    {
+        SDL_DestroyRenderer(renderer);
     }
 
     shared serialport = new shared SerialPort(args[1], 115200);
@@ -73,49 +85,8 @@ int main(string[] args)
     //     serialport.close();
     // }
 
-    error = TTF_Init();
-
-    if (error != 0)
-    {
-        writeln("Could not initialize SDL_ttf: ", TTF_GetError());
-        return 1;
-    }
-
-    auto dejaVuSans = TTF_OpenFont("DejaVuSans.ttf", 48);
-    scope (exit)
-    {
-        TTF_CloseFont(dejaVuSans);
-    }
-
-    if (!dejaVuSans)
-    {
-        writeln("Could not create font: ", TTF_GetError());
-        return 1;
-    }
-    /*
-    auto white = SDL_Color(255, 255, 255);
-
-    auto ledOnSurface = TTF_RenderUTF8_Solid(dejaVuSans, "Arduino says LED is ON.", white);
-    auto ledOnTexture = SDL_CreateTextureFromSurface(renderer, ledOnSurface);
-    auto ledOnRect = SDL_Rect(0, 0, ledOnSurface.w, ledOnSurface.h);
-    scope (exit)
-    {
-        SDL_DestroyTexture(ledOnTexture);
-        SDL_FreeSurface(ledOnSurface);
-    }
-
-    auto ledOffSurface = TTF_RenderUTF8_Solid(dejaVuSans, "Arduino says LED is OFF.", white);
-    auto ledOffTexture = SDL_CreateTextureFromSurface(renderer, ledOffSurface);
-    auto ledOffRect = SDL_Rect(0, 0, ledOffSurface.w, ledOffSurface.h);
-    scope (exit)
-    {
-        SDL_DestroyTexture(ledOffTexture);
-        SDL_FreeSurface(ledOffSurface);
-    }*/
-
     spawn(&serialReceiveWorker, serialport);
 
-    //SDL_ShowCursor(false);
     auto black = SDL_Color(0, 0, 0);
     auto red = SDL_Color(255, 0, 0);
     auto blue = SDL_Color(0, 0, 255);
@@ -130,7 +101,8 @@ int main(string[] args)
         //Note: Strengths may need to be raised a ton or lowered a ton. I honestly dont know.
         new MagnetFieldElement(918, 607, 32, 30, red, 10,
                 MagnetFieldElement.POLARITY.PUSH),
-        new MagnetFieldElement(918, 679, 32, 30, blue, 10, MagnetFieldElement.POLARITY.PULL),
+        new MagnetFieldElement(918, 679, 32, 30, blue, 10,
+                MagnetFieldElement.POLARITY.PULL),
 
         //Outside Walls
         new ImpassableElement(289, 545, 249, 30, black),
@@ -150,11 +122,12 @@ int main(string[] args)
         //Magnet-Walls
         new ImpassableElement(918, 607, 32, 30, red),
         new ImpassableElement(918, 679, 32, 30, blue)
-
     ];
 
     // Create the end effector representation in simulation
-    EndEffector endEffector = new EndEffector();
+    int mouseX, mouseY;
+    SDL_GetMouseState(&mouseX, &mouseY);
+    EndEffector endEffector = new EndEffector(mouseX, mouseY);
 
     auto background = SDL_Rect(0, 0, 1300, 1000);
 
@@ -185,21 +158,15 @@ int main(string[] args)
             ledOn = message.message[0] == 2;
         });
 
-
-
         // Clear render with a white background
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
         SDL_RenderFillRect(renderer, &background);
         SDL_RenderClear(renderer);
 
-
-
         // Draw each simulation element
         foreach (SimulationElement element; elements)
         {
-            SDL_SetRenderDrawColor(renderer, element.colour.r,
-                    element.colour.g, element.colour.b, SDL_ALPHA_OPAQUE);
-            SDL_RenderFillRect(renderer, &element.rect);
+            element.draw(renderer);
 
             // If a collision is detected between endeffector and a sim. element,
             //  adjust the cursor location such that it doesn't disconnect with the visual element
@@ -209,18 +176,14 @@ int main(string[] args)
             }
         }
 
-        // Update the cursor's x and y
-        // cursor.x = endEffector.x;
-        // cursor.y = endEffector.y;
-
         // Update the end effector's data (position, time)
-        endEffector.update();
+        SDL_GetMouseState(&mouseX, &mouseY);
+        endEffector.update(mouseX, mouseY);
 
         // This setup is pretty janky, we definitely wanna change it to converging forces eventually
         auto currentPosition = new PositionVector(endEffector.x, endEffector.y);
         auto totalForce = new ForceVector(0, 0);
         auto currentForce = endEffector.calculateForce();
-        //writeln(format("Force X: %f | ForceY: %f", currentForce.x, currentForce.y));
 
         // Draw the cursor
         SDL_SetRenderDrawColor(renderer, 0, 255, 0, SDL_ALPHA_OPAQUE);
@@ -268,19 +231,5 @@ int main(string[] args)
         if (!totalForce.isEmpty())
             stderr.writeln("Horizontal Force (N): " ~ to!string(
                     totalForce.x) ~ " | Vertical Force(N): " ~ to!string(totalForce.y));
-
-        /*
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE);
-        SDL_RenderClear(renderer);
-
-        if (ledOn)
-        {
-            SDL_RenderCopy(renderer, ledOnTexture, null, &ledOnRect);
-        }
-        else
-        {
-            SDL_RenderCopy(renderer, ledOffTexture, null, &ledOffRect);
-        }*/
-
     }
 }
