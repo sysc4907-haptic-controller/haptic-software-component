@@ -1,5 +1,6 @@
 import bindbc.sdl;
 import std.math;
+import std.math.rounding : round;
 import std.algorithm : max, min;
 import std.datetime;
 import std.stdio;
@@ -254,8 +255,7 @@ class EndEffector
         return new ForceVector(accX * MASS, accY * MASS);
     }
 
-    // Detects collision between end effector and an element
-    bool detectCollision(SimulationElement element)
+    bool collisionCalc(SimulationElement element, int x, int y)
     {
         if (cast(ImpassableElement) element)
         {
@@ -267,12 +267,36 @@ class EndEffector
                     min(element.rect.h / 2.0, difference.y)));
             difference = new PositionVector(elemCenter.x + clamped.x - x,
                     elemCenter.y + clamped.y - y);
-            if (sqrt(difference.x * difference.x + difference.y * difference.y) < RADIUS)
+            return sqrt(difference.x * difference.x + difference.y * difference.y) < RADIUS;
+        }
+        return false;
+    }
+    // Detects collision between end effector and an element
+    bool detectCollision(SimulationElement element)
+    {
+        if (collisionCalc(element, x, y))
+        {
+            double tempX = x;
+            double tempY = y;
+            double m = (y - prevY) / (x - prevX + 0.00000000000001);
+            double radians = atan(m);
+            do
             {
-                x = prevX;
-                y = prevY;
-                return true;
+                if (prevX > x)
+                {
+                    tempY -= sin(PI + radians);
+                    tempX -= cos(PI + radians);
+                }
+                else
+                {
+                    tempY -= sin(radians);
+                    tempX -= cos(radians);
+                }
             }
+            while (collisionCalc(element, cast(int) round(tempX), cast(int) round(tempY)));
+            x = cast(int) round(tempX);
+            y = cast(int) round(tempY);
+            return true;
         }
         return false;
     }
