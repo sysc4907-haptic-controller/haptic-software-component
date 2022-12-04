@@ -348,8 +348,8 @@ protected:
         version (Windows)
         {
             auto fname = `\\.\` ~ port;
-            _handle = cast(shared(HandleType)) CreateFileA(fname.toStringz, GENERIC_READ | GENERIC_WRITE,
-                    0, null, OPEN_EXISTING, 0, null);
+            _handle = cast(shared(HandleType)) CreateFileA(fname.toStringz,
+                    GENERIC_READ | GENERIC_WRITE, 0, null, OPEN_EXISTING, 0, null);
 
             if (_handle is INVALID_HANDLE_VALUE)
             {
@@ -357,7 +357,8 @@ protected:
             }
 
             SetupComm(cast(HandleType) _handle, 4096, 4096);
-            PurgeComm(cast(HandleType) _handle, PURGE_TXABORT | PURGE_TXCLEAR | PURGE_RXABORT | PURGE_RXCLEAR);
+            PurgeComm(cast(HandleType) _handle,
+                    PURGE_TXABORT | PURGE_TXCLEAR | PURGE_RXABORT | PURGE_RXCLEAR);
 
             COMMTIMEOUTS tm;
             tm.ReadIntervalTimeout = 0;
