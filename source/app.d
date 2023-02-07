@@ -6,6 +6,10 @@ import std.concurrency : receiveTimeout, receive, spawn, Tid, thisTid, send;
 import std.file;
 import std.conv : to;
 import std.format;
+import std.math;
+import std.math.rounding : round;
+import kaleidic.lubeck: mldivide, inv;
+import mir.ndslice;
 
 import bindbc.sdl;
 import bindbcLoader = bindbc.loader.sharedlib;
@@ -14,8 +18,119 @@ import serialport : SerialPort;
 import serial : serialReceiveWorker, SerialMessage;
 import sim;
 
+//units: PIXELS
+const double Y_BOTTOM_LINKAGE = 800;
+const double X_LEFT_ENCODER = 400;
+const double X_RIGHT_ENCODER = 500;
+
+//units: PIXELS
+const double LEN_BOTTOM_ARMS = 100;
+const double LEN_TOP_ARMS = 100;
+
+class InvalidAnglesException : Exception
+{
+    this(string msg) @safe pure nothrow @nogc
+    {
+        super(msg);
+    }
+}
+
+struct ValuesFromInitialAngles {
+    PositionVector pos;
+    double theta3;
+    double theta4;
+}
+
+auto inverseTransposeJacobian(double theta1, double theta2, double theta3, double theta4){
+    auto jacobian = slice!double(2,2);
+    auto row0 = jacobian[0];
+    auto row1 = jacobian[0];
+    //This is the transpose Jacobian
+    row0[0] = (LEN_BOTTOM_ARMS*sin(theta1-theta3)*sin(theta4))/(sin(theta3-theta4));
+    row1[0] = (LEN_BOTTOM_ARMS*sin(theta4-theta2)*sin(theta3))/(sin(theta3-theta4));
+    row0[1] = (LEN_BOTTOM_ARMS*sin(theta1-theta3)*cos(theta4))/(sin(theta3-theta4));
+    row1[1] = (LEN_BOTTOM_ARMS*sin(theta4-theta2)*cos(theta3))/(sin(theta3-theta4));
+    //returning the inverse of teh transpose jacobian
+    return jacobian.inv;
+}
+
+ValuesFromInitialAngles getValuesFromInitialAngles(double theta1, double theta2, int prevY, VelocityVector v) {
+    double leftArmJointX = X_LEFT_ENCODER + LEN_BOTTOM_ARMS*cos(theta1);
+    double rightArmJointX = X_RIGHT_ENCODER + LEN_BOTTOM_ARMS*cos(theta2);
+    double leftArmJointY = Y_BOTTOM_LINKAGE - LEN_BOTTOM_ARMS*sin(theta1);
+    double rightArmJointY = Y_BOTTOM_LINKAGE - LEN_BOTTOM_ARMS*sin(theta2);
+
+    double v1 = (rightArmJointY - leftArmJointY) / (leftArmJointX - rightArmJointX);
+    double v2 = (leftArmJointX*leftArmJointX + leftArmJointY*leftArmJointY - rightArmJointX*rightArmJointX - rightArmJointY*rightArmJointY) / (2*(leftArmJointX - rightArmJointX));
+    //double v2 = (-(LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS) + rightArmJointX*rightArmJointX + rightArmJointY*rightArmJointY) / (2*(rightArmJointX - leftArmJointX));
+    double v3 = 1.0 + v1*v1;
+    double v4 = 2.0*(v1*v2 - v1*leftArmJointX - leftArmJointY);
+    double v5 = -LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS + leftArmJointX*leftArmJointX + leftArmJointY*leftArmJointY - 2.0*v2*leftArmJointX + v2*v2;
+    //double v5 = LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS*LEN_TOP_ARMS*LEN_TOP_ARMS - 2.0*v2*leftArmJointX + v2*v2;
+
+    stderr.writeln("TEST:" ~ " | v1: " ~ to!string(v1) ~ " | v2: " ~ to!string(v2) ~ " | v3: " ~ to!string(v3) ~ " | v4: " ~ to!string(v4) ~ " | v5: " ~ to!string(v5));
+
+    double det = v4*v4 - 4*v3*v5;
+
+    ValuesFromInitialAngles ret;
+
+    if(det < 0){
+        throw new InvalidAnglesException("Impossible Angles Given");
+    }
+    double endYPositive = (-v4 + sqrt(det)) / (2.0*v3);
+    double endYNegative = (-v4 + sqrt(det)) / (2.0*v3);
+
+    double endY;
+
+    //TODO: Make sure this works lol
+    if(abs(endYPositive - prevY) <= 20 && abs(endYNegative - prevY) > 20){
+        endY = endYPositive;
+    } else if(abs(endYPositive - prevY) > 20 && abs(endYNegative - prevY) <= 20){
+        endY = endYNegative;
+    } else {
+        if(v.y > 0 && endYPositive >= prevY && endYNegative < prevY){
+            endY = endYPositive;
+        } else if(v.y > 0 && endYNegative >= prevY && endYPositive < prevY){
+            endY = endYNegative;
+        } else if(v.y < 0 && endYPositive <= prevY && endYNegative > prevY){
+            endY = endYPositive;
+        } else if(v.y < 0 && endYNegative <= prevY && endYPositive > prevY){
+            endY = endYNegative;
+        } else if(abs(endYPositive - prevY) < abs(endYNegative - prevY)){
+            endY = endYPositive;
+        } else {
+            endY = endYNegative;
+        }
+    }
+    endY = endYPositive;
+    double endX = v1*endYPositive + v2;
+
+    //Calculating theta3 and theta4 ADD PI
+    double theta3 = atan(abs(endY - leftArmJointY)/abs(endX - leftArmJointX));
+    if(endX < leftArmJointX){
+        theta3 = 2*PI - theta3;
+    }
+    double theta4 = PI - atan(abs(endY - rightArmJointY)/abs(endX - rightArmJointX));
+    if(endX > rightArmJointX){
+        theta4 = 2*PI - theta4;
+    }
+
+    ret.pos = new PositionVector(cast(int) round(endX), cast(int) round(endY));
+    ret.theta3 = theta3;
+    ret.theta4 = theta4;
+    return ret;
+}
+
 int main(string[] args)
 {
+    try{
+        auto test = getValuesFromInitialAngles(PI/2.0, PI/2.0, 500, new VelocityVector(0, 1));
+        stderr.writeln("TEST:" ~ " | theta3: " ~ to!string(test.theta3) ~ " | theta4: " ~ to!string(test.theta4) ~ " | xp: " ~ to!string(test.pos.x) ~ " | yp: " ~ to!string(test.pos.y));
+    } catch (Exception e) {
+        stderr.writeln("FAILED");
+    }
+
+
     if (args.length < 2)
     {
         stderr.writeln("usage: project-monitor /path/to/port");
@@ -129,12 +244,18 @@ int main(string[] args)
     SDL_GetMouseState(&mouseX, &mouseY);
     EndEffector endEffector = new EndEffector(mouseX, mouseY);
 
+    double theta1, theta2;
+    //TODO: Find initial values for these
+    theta1 = PI/2.0;
+    theta2 = PI/2.0;
+
     auto background = SDL_Rect(0, 0, 1300, 1000);
 
     // Create visual representation of the end effector (green square)
     // auto cursor = SDL_Rect(endEffector.x, endEffector.y, 10, 10);
 
-    bool ledOn = false;
+    //bool ledOn = false;
+    bool mouseMode = true;
 
     // Event Loop
     while (true)
@@ -150,12 +271,29 @@ int main(string[] args)
 
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_g)
             {
-                serialport.write([ledOn ? 1: 2]);
+                //serialport.write([ledOn ? 1: 2]);
+                mouseMode = !mouseMode;
             }
         }
-
+        /*
+        * SENSOR IDS:
+        * -------------------
+        * LEFT ENCODER:  0x01
+        * RIGHT ENCODER: 0x02
+        */
         receiveTimeout(-1.seconds, (immutable SerialMessage message) {
-            ledOn = message.message[0] == 2;
+            //ledOn = message.message[0] == 2;
+            if(message.message[0] == 0x02){
+                // LEFT ENCODER
+                if(message.message[1] == 0x01){
+                    //TODO: Figure out how the float64 is stored
+                    theta1 += message.message[2];
+                }
+                //RIGHT ENCODER
+                else if(message.message[1] == 0x02){
+                    theta2 += message.message[2];
+                }
+            }
         });
 
         // Clear render with a white background
@@ -170,15 +308,33 @@ int main(string[] args)
 
             // If a collision is detected between endeffector and a sim. element,
             //  adjust the cursor location such that it doesn't disconnect with the visual element
-            if (endEffector.detectCollision(element))
+            if (endEffector.detectCollision(element) && mouseMode)
             {
                 SDL_WarpMouseInWindow(window, endEffector.x, endEffector.y);
             }
         }
+        PositionVector endEffectorPosFromAngles;
+        double theta3;
+        double theta4;
+        ValuesFromInitialAngles endPointsAndThetas;
 
-        // Update the end effector's data (position, time)
-        SDL_GetMouseState(&mouseX, &mouseY);
-        endEffector.update(mouseX, mouseY);
+        if(mouseMode){
+            // Update the end effector's data (position, time)
+            SDL_GetMouseState(&mouseX, &mouseY);
+            endEffector.update(mouseX, mouseY);
+        } else {
+            try{
+                endPointsAndThetas = getValuesFromInitialAngles(theta1, theta2, endEffector.y, endEffector.currVelocity);
+            } catch (InvalidAnglesException e){
+                stderr.writeln("ERROR CALCULATING END POINT FOR THE FOLLOWING THETA_1: " ~ to!string(theta1) ~ " | THETA_2: " ~ to!string(theta2));
+                continue;
+            }
+            endEffectorPosFromAngles = endPointsAndThetas.pos;
+            theta3 = endPointsAndThetas.theta3;
+            theta4 = endPointsAndThetas.theta4;
+
+            endEffector.update(endEffectorPosFromAngles);
+        }
 
         // This setup is pretty janky, we definitely wanna change it to converging forces eventually
         auto currentPosition = new PositionVector(endEffector.x, endEffector.y);
@@ -231,5 +387,12 @@ int main(string[] args)
         if (!totalForce.isEmpty())
             stderr.writeln("Horizontal Force (N): " ~ to!string(
                     totalForce.x) ~ " | Vertical Force(N): " ~ to!string(totalForce.y));
+
+        if(!mouseMode){
+            auto forceMatrix = [totalForce.x, totalForce.y].sliced(1, 2);
+            auto torques = mldivide(inverseTransposeJacobian(theta1, theta2, theta3, theta4), forceMatrix);
+        }
+
+        //TODO @will: use torques to send correct values to motors and/or brakes
     }
 }
