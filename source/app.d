@@ -4,6 +4,7 @@ import std.datetime : seconds;
 import std.variant : Variant;
 import std.concurrency : receiveTimeout, receive, spawn, Tid, thisTid, send;
 import std.file;
+import std.exception: enforce;
 import std.conv : to;
 import std.format;
 import std.math;
@@ -18,14 +19,15 @@ import serialport : SerialPort;
 import serial : serialReceiveWorker, SerialMessage;
 import sim;
 
+//TODO: GET THE RIGHT COORDS
 //units: PIXELS
 const double Y_BOTTOM_LINKAGE = 800;
 const double X_LEFT_ENCODER = 400;
 const double X_RIGHT_ENCODER = 500;
 
 //units: PIXELS
-const double LEN_BOTTOM_ARMS = 100;
-const double LEN_TOP_ARMS = 100;
+const double LEN_BOTTOM_ARMS = 700;
+const double LEN_TOP_ARMS = 900;
 
 class InvalidAnglesException : Exception
 {
@@ -68,7 +70,7 @@ ValuesFromInitialAngles getValuesFromInitialAngles(double theta1, double theta2,
     double v5 = -LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS + leftArmJointX*leftArmJointX + leftArmJointY*leftArmJointY - 2.0*v2*leftArmJointX + v2*v2;
     //double v5 = LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS*LEN_TOP_ARMS*LEN_TOP_ARMS - 2.0*v2*leftArmJointX + v2*v2;
 
-    stderr.writeln("TEST:" ~ " | v1: " ~ to!string(v1) ~ " | v2: " ~ to!string(v2) ~ " | v3: " ~ to!string(v3) ~ " | v4: " ~ to!string(v4) ~ " | v5: " ~ to!string(v5));
+    //stderr.writeln("TEST:" ~ " | v1: " ~ to!string(v1) ~ " | v2: " ~ to!string(v2) ~ " | v3: " ~ to!string(v3) ~ " | v4: " ~ to!string(v4) ~ " | v5: " ~ to!string(v5));
 
     double det = v4*v4 - 4*v3*v5;
 
@@ -123,14 +125,6 @@ ValuesFromInitialAngles getValuesFromInitialAngles(double theta1, double theta2,
 
 int main(string[] args)
 {
-    try{
-        auto test = getValuesFromInitialAngles(PI/2.0, PI/2.0, 500, new VelocityVector(0, 1));
-        stderr.writeln("TEST:" ~ " | theta3: " ~ to!string(test.theta3) ~ " | theta4: " ~ to!string(test.theta4) ~ " | xp: " ~ to!string(test.pos.x) ~ " | yp: " ~ to!string(test.pos.y));
-    } catch (Exception e) {
-        stderr.writeln("FAILED");
-    }
-
-
     if (args.length < 2)
     {
         stderr.writeln("usage: project-monitor /path/to/port");
@@ -245,9 +239,17 @@ int main(string[] args)
     EndEffector endEffector = new EndEffector(mouseX, mouseY);
 
     double theta1, theta2;
-    //TODO: Find initial values for these
-    theta1 = PI/2.0;
-    theta2 = PI/2.0;
+    int xForceSensorReading, yForceSensorReading, leftCurrentSensorReading, rightCurrentSensorReading;
+
+    theta2 = acos((cast(double)(2*LEN_TOP_ARMS-(X_RIGHT_ENCODER-X_LEFT_ENCODER)))/2*LEN_BOTTOM_ARMS);
+    theta1 = PI - theta2;
+
+    xForceSensorReading = 0;
+    xForceSensorReading = 0;
+
+    leftCurrentSensorReading = 0;
+    rightCurrentSensorReading = 0;
+
 
     auto background = SDL_Rect(0, 0, 1300, 1000);
 
@@ -276,22 +278,57 @@ int main(string[] args)
             }
         }
         /*
-        * SENSOR IDS:
-        * -------------------
-        * LEFT ENCODER:  0x01
-        * RIGHT ENCODER: 0x02
+        SENSOR IDS:
+        -------------------
+        LEFT ENCODER:  0x00
+        RIGHT ENCODER: 0x01
+
+        LEFT CURRENT SENSOR: 0x10
+        RIGHT CURRENT SENSOR: 0x11
+
+        X-FORCE SENSOR: 0x20
+        Y-FORCE SENSOR: 0x21
+
+        Data: 32-bit uint
         */
         receiveTimeout(-1.seconds, (immutable SerialMessage message) {
-            //ledOn = message.message[0] == 2;
-            if(message.message[0] == 0x02){
+            auto ch1 = message.message[2];
+            auto ch2 = message.message[3];
+            auto ch3 = message.message[4];
+            auto ch4 = message.message[5];
+            enforce((ch1 | ch2 | ch3 | ch4) < 0, "Serial data should have 4 bytes");
+            auto data = ((ch1 << 24) + (ch2 << 16) + (ch3 << 8) + (ch4 << 0));
+            //ENCODERS
+            if(message.message[0] == 0x0){
                 // LEFT ENCODER
-                if(message.message[1] == 0x01){
-                    //TODO: Figure out how the float64 is stored
-                    theta1 += message.message[2];
+                if(message.message[1] == 0x0){
+                    theta1 += data*(PI/180.0);
                 }
                 //RIGHT ENCODER
-                else if(message.message[1] == 0x02){
-                    theta2 += message.message[2];
+                else if(message.message[1] == 0x1){
+                    theta2 += data*(PI/180.0);
+                }
+            }
+            //CURRENT SENSORS
+            else if(message.message[0] == 0x1){
+                // LEFT CURRENT SENSOR
+                if(message.message[1] == 0x0){
+                    leftCurrentSensorReading = data;
+                }
+                //RIGHT CURRENT SENSOR
+                else if(message.message[1] == 0x1){
+                    rightCurrentSensorReading = data;
+                }
+            }
+            //FORCE SENSORS
+            if(message.message[0] == 0x0){
+                // X FORCE SENSOR
+                if(message.message[1] == 0x0){
+                    xForceSensorReading = data;
+                }
+                //Y FORCE SENSOR
+                else if(message.message[1] == 0x1){
+                    yForceSensorReading= data;
                 }
             }
         });
