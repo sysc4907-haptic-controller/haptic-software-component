@@ -21,9 +21,9 @@ import sim;
 
 //TODO: GET THE RIGHT COORDS
 //units: PIXELS
-const double Y_BOTTOM_LINKAGE = 800;
-const double X_LEFT_ENCODER = 400;
-const double X_RIGHT_ENCODER = 500;
+const double Y_BOTTOM_LINKAGE = 1584;
+const double X_LEFT_ENCODER = 465;
+const double X_RIGHT_ENCODER = 915;
 
 //units: PIXELS
 const double LEN_BOTTOM_ARMS = 700;
@@ -79,33 +79,8 @@ ValuesFromInitialAngles getValuesFromInitialAngles(double theta1, double theta2,
     if(det < 0){
         throw new InvalidAnglesException("Impossible Angles Given");
     }
-    double endYPositive = (-v4 + sqrt(det)) / (2.0*v3);
-    double endYNegative = (-v4 + sqrt(det)) / (2.0*v3);
-
-    double endY;
-
-    //TODO: Make sure this works lol
-    if(abs(endYPositive - prevY) <= 20 && abs(endYNegative - prevY) > 20){
-        endY = endYPositive;
-    } else if(abs(endYPositive - prevY) > 20 && abs(endYNegative - prevY) <= 20){
-        endY = endYNegative;
-    } else {
-        if(v.y > 0 && endYPositive >= prevY && endYNegative < prevY){
-            endY = endYPositive;
-        } else if(v.y > 0 && endYNegative >= prevY && endYPositive < prevY){
-            endY = endYNegative;
-        } else if(v.y < 0 && endYPositive <= prevY && endYNegative > prevY){
-            endY = endYPositive;
-        } else if(v.y < 0 && endYNegative <= prevY && endYPositive > prevY){
-            endY = endYNegative;
-        } else if(abs(endYPositive - prevY) < abs(endYNegative - prevY)){
-            endY = endYPositive;
-        } else {
-            endY = endYNegative;
-        }
-    }
-    endY = endYPositive;
-    double endX = v1*endYPositive + v2;
+    double endY = (-v4 - sqrt(det)) / (2.0*v3);
+    double endX = v1*endY + v2;
 
     //Calculating theta3 and theta4 ADD PI
     double theta3 = atan(abs(endY - leftArmJointY)/abs(endX - leftArmJointX));
@@ -280,57 +255,52 @@ int main(string[] args)
         /*
         SENSOR IDS:
         -------------------
-        LEFT ENCODER:  0x00
-        RIGHT ENCODER: 0x01
+        LEFT ENCODER:  0x0
+        RIGHT ENCODER: 0x1
 
-        LEFT CURRENT SENSOR: 0x10
-        RIGHT CURRENT SENSOR: 0x11
+        LEFT CURRENT SENSOR: 0x2
+        RIGHT CURRENT SENSOR: 0x3
 
-        X-FORCE SENSOR: 0x20
-        Y-FORCE SENSOR: 0x21
+        X-FORCE SENSOR: 0x4
+        Y-FORCE SENSOR: 0x5
 
-        Data: 32-bit uint
+        Data: 32-bit int
         */
         receiveTimeout(-1.seconds, (immutable SerialMessage message) {
-            auto ch1 = message.message[2];
-            auto ch2 = message.message[3];
-            auto ch3 = message.message[4];
-            auto ch4 = message.message[5];
+            enforce(message.message.length != 5, "Serial Message should be 5 bytes long");
+            auto ch1 = message.message[1];
+            auto ch2 = message.message[2];
+            auto ch3 = message.message[3];
+            auto ch4 = message.message[4];
             enforce((ch1 | ch2 | ch3 | ch4) < 0, "Serial data should have 4 bytes");
-            auto data = ((ch1 << 24) + (ch2 << 16) + (ch3 << 8) + (ch4 << 0));
-            //ENCODERS
+            int data = ((ch1 << 24) + (ch2 << 16) + (ch3 << 8) + (ch4 << 0));
+            // LEFT ENCODER
             if(message.message[0] == 0x0){
-                // LEFT ENCODER
-                if(message.message[1] == 0x0){
-                    theta1 += data*(PI/180.0);
-                }
-                //RIGHT ENCODER
-                else if(message.message[1] == 0x1){
-                    theta2 += data*(PI/180.0);
-                }
+                theta1 += data*(PI/180.0);
             }
-            //CURRENT SENSORS
+            //RIGHT ENCODER
             else if(message.message[0] == 0x1){
-                // LEFT CURRENT SENSOR
-                if(message.message[1] == 0x0){
-                    leftCurrentSensorReading = data;
-                }
-                //RIGHT CURRENT SENSOR
-                else if(message.message[1] == 0x1){
-                    rightCurrentSensorReading = data;
-                }
+                theta2 += data*(PI/180.0);
             }
-            //FORCE SENSORS
-            if(message.message[0] == 0x0){
-                // X FORCE SENSOR
-                if(message.message[1] == 0x0){
-                    xForceSensorReading = data;
-                }
-                //Y FORCE SENSOR
-                else if(message.message[1] == 0x1){
-                    yForceSensorReading= data;
-                }
+
+            // LEFT CURRENT SENSOR
+            if(message.message[0] == 0x2){
+                leftCurrentSensorReading = data;
             }
+            //RIGHT CURRENT SENSOR
+            else if(message.message[0] == 0x3){
+                rightCurrentSensorReading = data;
+            }
+
+            // X FORCE SENSOR
+            if(message.message[0] == 0x4){
+                xForceSensorReading = data;
+            }
+            //Y FORCE SENSOR
+            else if(message.message[0] == 0x5){
+                yForceSensorReading= data;
+            }
+
         });
 
         // Clear render with a white background
