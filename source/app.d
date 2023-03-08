@@ -4,12 +4,12 @@ import std.datetime : seconds;
 import std.variant : Variant;
 import std.concurrency : receiveTimeout, receive, spawn, Tid, thisTid, send;
 import std.file;
-import std.exception: enforce;
+import std.exception : enforce;
 import std.conv : to;
 import std.format;
 import std.math;
 import std.math.rounding : round;
-import kaleidic.lubeck: mldivide, inv;
+import kaleidic.lubeck : mldivide, inv;
 import mir.ndslice;
 
 import bindbc.sdl;
@@ -18,6 +18,12 @@ import serialport : SerialPort;
 
 import serial : serialReceiveWorker, SerialMessage;
 import sim;
+import pid;
+
+// Motor-related Values
+private double noLoadRpm = 7600;
+private double motorPeakVoltage = 30;
+double motorTorqueConstant = 248.1609513;
 
 //TODO: GET THE RIGHT COORDS
 //units: PIXELS
@@ -37,59 +43,78 @@ class InvalidAnglesException : Exception
     }
 }
 
-struct ValuesFromInitialAngles {
+struct ValuesFromInitialAngles
+{
     PositionVector pos;
     double theta3;
     double theta4;
 }
 
-auto inverseTransposeJacobian(double theta1, double theta2, double theta3, double theta4){
-    auto jacobian = slice!double(2,2);
+auto calculateRequiredCurrent(double sensorReading)
+{
+    float sensitivity = 100.0 / 500.0;
+    float Vref = 2500;
+    float voltage = 4.88 * sensorReading;
+
+    return (voltage - Vref) * sensitivity;
+}
+
+auto inverseTransposeJacobian(double theta1, double theta2, double theta3, double theta4)
+{
+    auto jacobian = slice!double(2, 2);
     auto row0 = jacobian[0];
     auto row1 = jacobian[0];
     //This is the transpose Jacobian
-    row0[0] = (LEN_BOTTOM_ARMS*sin(theta1-theta3)*sin(theta4))/(sin(theta3-theta4));
-    row1[0] = (LEN_BOTTOM_ARMS*sin(theta4-theta2)*sin(theta3))/(sin(theta3-theta4));
-    row0[1] = (LEN_BOTTOM_ARMS*sin(theta1-theta3)*cos(theta4))/(sin(theta3-theta4));
-    row1[1] = (LEN_BOTTOM_ARMS*sin(theta4-theta2)*cos(theta3))/(sin(theta3-theta4));
+    row0[0] = (LEN_BOTTOM_ARMS * sin(theta1 - theta3) * sin(theta4)) / (sin(theta3 - theta4));
+    row1[0] = (LEN_BOTTOM_ARMS * sin(theta4 - theta2) * sin(theta3)) / (sin(theta3 - theta4));
+    row0[1] = (LEN_BOTTOM_ARMS * sin(theta1 - theta3) * cos(theta4)) / (sin(theta3 - theta4));
+    row1[1] = (LEN_BOTTOM_ARMS * sin(theta4 - theta2) * cos(theta3)) / (sin(theta3 - theta4));
     //returning the inverse of teh transpose jacobian
     return jacobian.inv;
 }
 
-ValuesFromInitialAngles getValuesFromInitialAngles(double theta1, double theta2, int prevY, VelocityVector v) {
-    double leftArmJointX = X_LEFT_ENCODER + LEN_BOTTOM_ARMS*cos(theta1);
-    double rightArmJointX = X_RIGHT_ENCODER + LEN_BOTTOM_ARMS*cos(theta2);
-    double leftArmJointY = Y_BOTTOM_LINKAGE - LEN_BOTTOM_ARMS*sin(theta1);
-    double rightArmJointY = Y_BOTTOM_LINKAGE - LEN_BOTTOM_ARMS*sin(theta2);
+ValuesFromInitialAngles getValuesFromInitialAngles(double theta1, double theta2,
+        int prevY, VelocityVector v)
+{
+    double leftArmJointX = X_LEFT_ENCODER + LEN_BOTTOM_ARMS * cos(theta1);
+    double rightArmJointX = X_RIGHT_ENCODER + LEN_BOTTOM_ARMS * cos(theta2);
+    double leftArmJointY = Y_BOTTOM_LINKAGE - LEN_BOTTOM_ARMS * sin(theta1);
+    double rightArmJointY = Y_BOTTOM_LINKAGE - LEN_BOTTOM_ARMS * sin(theta2);
 
     double v1 = (rightArmJointY - leftArmJointY) / (leftArmJointX - rightArmJointX);
-    double v2 = (leftArmJointX*leftArmJointX + leftArmJointY*leftArmJointY - rightArmJointX*rightArmJointX - rightArmJointY*rightArmJointY) / (2*(leftArmJointX - rightArmJointX));
+    double v2 = (leftArmJointX * leftArmJointX + leftArmJointY * leftArmJointY
+            - rightArmJointX * rightArmJointX - rightArmJointY * rightArmJointY) / (
+            2 * (leftArmJointX - rightArmJointX));
     //double v2 = (-(LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS) + rightArmJointX*rightArmJointX + rightArmJointY*rightArmJointY) / (2*(rightArmJointX - leftArmJointX));
-    double v3 = 1.0 + v1*v1;
-    double v4 = 2.0*(v1*v2 - v1*leftArmJointX - leftArmJointY);
-    double v5 = -LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS + leftArmJointX*leftArmJointX + leftArmJointY*leftArmJointY - 2.0*v2*leftArmJointX + v2*v2;
+    double v3 = 1.0 + v1 * v1;
+    double v4 = 2.0 * (v1 * v2 - v1 * leftArmJointX - leftArmJointY);
+    double v5 = -LEN_BOTTOM_ARMS * LEN_BOTTOM_ARMS + leftArmJointX * leftArmJointX
+        + leftArmJointY * leftArmJointY - 2.0 * v2 * leftArmJointX + v2 * v2;
     //double v5 = LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS*LEN_TOP_ARMS*LEN_TOP_ARMS - 2.0*v2*leftArmJointX + v2*v2;
 
     //stderr.writeln("TEST:" ~ " | v1: " ~ to!string(v1) ~ " | v2: " ~ to!string(v2) ~ " | v3: " ~ to!string(v3) ~ " | v4: " ~ to!string(v4) ~ " | v5: " ~ to!string(v5));
 
-    double det = v4*v4 - 4*v3*v5;
+    double det = v4 * v4 - 4 * v3 * v5;
 
     ValuesFromInitialAngles ret;
 
-    if(det < 0){
+    if (det < 0)
+    {
         throw new InvalidAnglesException("Impossible Angles Given");
     }
-    double endY = (-v4 - sqrt(det)) / (2.0*v3);
-    double endX = v1*endY + v2;
+    double endY = (-v4 - sqrt(det)) / (2.0 * v3);
+    double endX = v1 * endY + v2;
 
     //Calculating theta3 and theta4 ADD PI
-    double theta3 = atan(abs(endY - leftArmJointY)/abs(endX - leftArmJointX));
-    if(endX < leftArmJointX){
-        theta3 = 2*PI - theta3;
+    double theta3 = atan(abs(endY - leftArmJointY) / abs(endX - leftArmJointX));
+    if (endX < leftArmJointX)
+    {
+        theta3 = 2 * PI - theta3;
     }
-    double theta4 = PI - atan(abs(endY - rightArmJointY)/abs(endX - rightArmJointX));
-    if(endX > rightArmJointX){
-        theta4 = 2*PI - theta4;
+    double theta4 = PI - atan(abs(endY - rightArmJointY) / abs(endX - rightArmJointX));
+    if (endX > rightArmJointX)
+    {
+        theta4 = 2 * PI - theta4;
     }
 
     ret.pos = new PositionVector(cast(int) round(endX), cast(int) round(endY));
@@ -214,9 +239,11 @@ int main(string[] args)
     EndEffector endEffector = new EndEffector(mouseX, mouseY);
 
     double theta1, theta2;
-    int xForceSensorReading, yForceSensorReading, leftCurrentSensorReading, rightCurrentSensorReading;
+    int xForceSensorReading, yForceSensorReading, leftCurrentSensorReading,
+        rightCurrentSensorReading;
 
-    theta2 = acos((cast(double)(2*LEN_TOP_ARMS-(X_RIGHT_ENCODER-X_LEFT_ENCODER)))/2*LEN_BOTTOM_ARMS);
+    theta2 = acos((cast(double)(
+            2 * LEN_TOP_ARMS - (X_RIGHT_ENCODER - X_LEFT_ENCODER))) / 2 * LEN_BOTTOM_ARMS);
     theta1 = PI - theta2;
 
     xForceSensorReading = 0;
@@ -225,7 +252,6 @@ int main(string[] args)
     leftCurrentSensorReading = 0;
     rightCurrentSensorReading = 0;
 
-
     auto background = SDL_Rect(0, 0, 1300, 1000);
 
     // Create visual representation of the end effector (green square)
@@ -233,6 +259,9 @@ int main(string[] args)
 
     //bool ledOn = false;
     bool mouseMode = true;
+
+    Pid leftMotorController = new Pid(0);
+    Pid rightMotorController = new Pid(0);
 
     // Event Loop
     while (true)
@@ -271,34 +300,40 @@ int main(string[] args)
             auto id = message.message[0];
             auto ch1 = message.message[1];
             auto ch2 = message.message[2];
-            auto dir = message.message[3]?-1:1;
+            auto dir = message.message[3] ? -1 : 1;
             enforce((ch1 | ch2) < 0, "Serial data should have 2 bytes");
             int data = ((ch1 << 8) + (ch2 << 0));
             // LEFT ENCODER
-            if(id == 0x0){
-                theta1 += data*(PI/180.0)*dir;
+            if (id == 0x0)
+            {
+                theta1 += data * (PI / 180.0) * dir;
             }
             //RIGHT ENCODER
-            else if(id == 0x1){
-                theta2 += data*(PI/180.0)*dir;
+            else if (id == 0x1)
+            {
+                theta2 += data * (PI / 180.0) * dir;
             }
 
             // LEFT CURRENT SENSOR
-            if(id == 0x2){
-                leftCurrentSensorReading = data*dir;
+            if (id == 0x2)
+            {
+                leftCurrentSensorReading = data * dir;
             }
             //RIGHT CURRENT SENSOR
-            else if(id == 0x3){
-                rightCurrentSensorReading = data*dir;
+            else if (id == 0x3)
+            {
+                rightCurrentSensorReading = data * dir;
             }
 
             // X FORCE SENSOR
-            if(id == 0x4){
-                xForceSensorReading = data*dir;
+            if (id == 0x4)
+            {
+                xForceSensorReading = data * dir;
             }
             //Y FORCE SENSOR
-            else if(id == 0x5){
-                yForceSensorReading= data*dir;
+            else if (id == 0x5)
+            {
+                yForceSensorReading = data * dir;
             }
 
         });
@@ -325,15 +360,23 @@ int main(string[] args)
         double theta4;
         ValuesFromInitialAngles endPointsAndThetas;
 
-        if(mouseMode){
+        if (mouseMode)
+        {
             // Update the end effector's data (position, time)
             SDL_GetMouseState(&mouseX, &mouseY);
             endEffector.update(mouseX, mouseY);
-        } else {
-            try{
-                endPointsAndThetas = getValuesFromInitialAngles(theta1, theta2, endEffector.y, endEffector.currVelocity);
-            } catch (InvalidAnglesException e){
-                stderr.writeln("ERROR CALCULATING END POINT FOR THE FOLLOWING THETA_1: " ~ to!string(theta1) ~ " | THETA_2: " ~ to!string(theta2));
+        }
+        else
+        {
+            try
+            {
+                endPointsAndThetas = getValuesFromInitialAngles(theta1, theta2,
+                        endEffector.y, endEffector.currVelocity);
+            }
+            catch (InvalidAnglesException e)
+            {
+                stderr.writeln("ERROR CALCULATING END POINT FOR THE FOLLOWING THETA_1: " ~ to!string(
+                        theta1) ~ " | THETA_2: " ~ to!string(theta2));
                 continue;
             }
             endEffectorPosFromAngles = endPointsAndThetas.pos;
@@ -395,9 +438,51 @@ int main(string[] args)
             stderr.writeln("Horizontal Force (N): " ~ to!string(
                     totalForce.x) ~ " | Vertical Force(N): " ~ to!string(totalForce.y));
 
-        if(!mouseMode){
+        if (!mouseMode)
+        {
             auto forceMatrix = [totalForce.x, totalForce.y].sliced(1, 2);
-            auto torques = mldivide(inverseTransposeJacobian(theta1, theta2, theta3, theta4), forceMatrix);
+            auto torques = mldivide(inverseTransposeJacobian(theta1, theta2,
+                    theta3, theta4), forceMatrix);
+
+            // Update target current according to required torques to simulate forces
+            leftMotorController.updateTarget(torques[0][0] / motorTorqueConstant);
+            rightMotorController.updateTarget(torques[1][0] / motorTorqueConstant);
+
+            // Calculate current readings from sensors
+            double leftCurrentReading = calculateRequiredCurrent(leftCurrentSensorReading);
+            double rightCurrentReading = calculateRequiredCurrent(rightCurrentSensorReading);
+
+            // Calculate the control signal according to error
+            double leftControlSignal = leftMotorController.calculateControlSignal(
+                    leftCurrentSensorReading);
+            double rightControlSignal = rightMotorController.calculateControlSignal(
+                    rightCurrentSensorReading);
+
+            // Define message type and size
+            byte[1] msg_type = [0x01];
+            byte[1] msg_size = [0x18];
+
+            // Define motor IDs
+            ubyte leftMotorId = 0x01;
+            ubyte rightMotorId = 0x02;
+
+            // Create message for left motor and send
+            ubyte power = to!ubyte(abs(leftControlSignal));
+            ubyte sign = to!ubyte(sgn(leftControlSignal) == 1 ? 0 : 1);
+            byte[3] leftMotor_msg = [leftMotorId, power, sign];
+
+            serialport.write(msg_type);
+            serialport.write(msg_size);
+            serialport.write(leftMotor_msg);
+
+            // Create message for right motor and send
+            power = to!ubyte(abs(rightControlSignal));
+            sign = to!ubyte(sgn(rightControlSignal) == 1 ? 0 : 1);
+            byte[3] rightMotor_msg = [rightMotorId, power, sign];
+
+            serialport.write(msg_type);
+            serialport.write(msg_size);
+            serialport.write(rightMotor_msg);
         }
 
         //TODO @will: use torques to send correct values to motors and/or brakes
