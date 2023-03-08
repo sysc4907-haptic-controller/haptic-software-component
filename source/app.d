@@ -267,38 +267,38 @@ int main(string[] args)
         Data: 32-bit int
         */
         receiveTimeout(-1.seconds, (immutable SerialMessage message) {
-            enforce(message.message.length != 5, "Serial Message should be 5 bytes long");
+            enforce(message.message.length != 4, "Serial Message should be 4 bytes long");
+            auto id = message.message[0];
             auto ch1 = message.message[1];
             auto ch2 = message.message[2];
-            auto ch3 = message.message[3];
-            auto ch4 = message.message[4];
-            enforce((ch1 | ch2 | ch3 | ch4) < 0, "Serial data should have 4 bytes");
-            int data = ((ch1 << 24) + (ch2 << 16) + (ch3 << 8) + (ch4 << 0));
+            auto dir = message.message[3]?-1:1;
+            enforce((ch1 | ch2) < 0, "Serial data should have 2 bytes");
+            int data = ((ch1 << 8) + (ch2 << 0));
             // LEFT ENCODER
-            if(message.message[0] == 0x0){
-                theta1 += data*(PI/180.0);
+            if(id == 0x0){
+                theta1 += data*(PI/180.0)*dir;
             }
             //RIGHT ENCODER
-            else if(message.message[0] == 0x1){
-                theta2 += data*(PI/180.0);
+            else if(id == 0x1){
+                theta2 += data*(PI/180.0)*dir;
             }
 
             // LEFT CURRENT SENSOR
-            if(message.message[0] == 0x2){
-                leftCurrentSensorReading = data;
+            if(id == 0x2){
+                leftCurrentSensorReading = data*dir;
             }
             //RIGHT CURRENT SENSOR
-            else if(message.message[0] == 0x3){
-                rightCurrentSensorReading = data;
+            else if(id == 0x3){
+                rightCurrentSensorReading = data*dir;
             }
 
             // X FORCE SENSOR
-            if(message.message[0] == 0x4){
-                xForceSensorReading = data;
+            if(id == 0x4){
+                xForceSensorReading = data*dir;
             }
             //Y FORCE SENSOR
-            else if(message.message[0] == 0x5){
-                yForceSensorReading= data;
+            else if(id == 0x5){
+                yForceSensorReading= data*dir;
             }
 
         });
