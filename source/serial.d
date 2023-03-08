@@ -28,14 +28,24 @@ void serialReceiveWorker(SerialPort serialport)
         byte[] readBytes = cast(byte[]) serialport.read(buffer);
         byte[] temp;
         byte[] sendMsg;
+        int length = 0;
         ulong remainingElements = -1;
 
         while (true)
         {
+
+            if (readBytes.length == 1 && length == -1) {
+                temp = readBytes;
+            }
+
             // If current buffer is fully read, read a new buffer
-            if (readBytes.length == 0)
+            if (readBytes.length == 0 || (readBytes.length == 1 && length == -1))
             {
-                readBytes = cast(byte[]) serialport.read(buffer);
+                if (readBytes.length == 1 && length == -1) {
+                    readBytes = temp~cast(byte[]) serialport.read(buffer);
+                } else {
+                    readBytes = cast(byte[]) serialport.read(buffer);
+                }
             }
 
             // If an end index has not been defined (i.e., starting from 0th index with no fragment)
@@ -43,7 +53,7 @@ void serialReceiveWorker(SerialPort serialport)
             {
 
                 // Find length of message at 2nd bit
-                int length = readBytes[1];
+                length = readBytes[1];
 
                 // If the length of message is greater than the buffer size
                 if (length > readBytes.length)
@@ -102,21 +112,17 @@ void serialReceiveWorker(SerialPort serialport)
                     // Denote no longer a fragment waiting
                     remainingElements = -1;
                 }
-
-                // If there is a message to send
-                if (sendMsg.length != 0)
-                {
-                    // Send the message
-                    send(ownerTid, new immutable SerialMessage(sendMsg));
-
-                    // Clear after sending
-                    sendMsg = [];
-                }
             }
 
-            if (readBytes.length != 0)
+            // If there is a message to send
+            if (sendMsg.length != 0)
             {
-                send(ownerTid, new immutable SerialMessage(readBytes));
+                // Send the message
+                send(ownerTid, new immutable SerialMessage(sendMsg));
+
+                // Clear after sending
+                sendMsg = [];
+                length = -1;
             }
 
             receiveTimeout(-1.seconds, (OwnerTerminated o) { running = false; });
