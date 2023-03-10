@@ -19,15 +19,23 @@ immutable class SerialMessage
     }
 }
 
+byte[] generateRandomArray() {
+    byte[] arr;
+    arr ~= [0x02, 0x04];
+    foreach(i; 0..14) {
+        arr ~= cast(ubyte) uniform(1, 10);
+    }
+    return arr;
+}
+
 void serialReceiveWorker(SerialPort serialport)
 {
     bool running = true;
     while (running)
     {
         // TODO: hack, we should use OS waiting
-        byte[6] buffer;
-        byte[] readBytes = cast(byte[]) serialport.read(buffer);
-        writeln("First Buffer Reading:" ~to!string(readBytes));
+        byte[16] buffer;
+        byte[] readBytes = generateRandomArray();
         byte[] temp;
         byte[] sendMsg;
         int length = 0;
@@ -35,7 +43,7 @@ void serialReceiveWorker(SerialPort serialport)
 
         while (true)
         {
-            writeln("Buffer Reading:" ~to!string(readBytes));
+            //writeln("Buffer Reading:" ~to!string(readBytes));
             if (readBytes.length == 1 && length == -1) {
                 temp = readBytes;
             }
@@ -44,11 +52,11 @@ void serialReceiveWorker(SerialPort serialport)
             if (readBytes.length == 0 || (readBytes.length == 1 && length == -1))
             {
                 if (readBytes.length == 1 && length == -1) {
-                    readBytes = temp~cast(byte[]) serialport.read(buffer);
+                    readBytes = temp~generateRandomArray();
                 } else {
-                    readBytes = cast(byte[]) serialport.read(buffer);
+                    readBytes = generateRandomArray();
                 }
-                writeln("New Buffer Reading:" ~to!string(readBytes));
+                //writeln("New Buffer Reading:" ~to!string(readBytes));
             }
 
             // If an end index has not been defined (i.e., starting from 0th index with no fragment)
@@ -61,15 +69,15 @@ void serialReceiveWorker(SerialPort serialport)
                 // If the length of message is greater than the buffer size
                 if (length > readBytes.length)
                 {
-                    writeln("AGNAGHIHAWGOHG");
+                    //writeln("AGNAGHIHAWGOHG | " ~to!string(length)~"|"~to!string(readBytes.length));
                     // Store the buffer contents into a temp array
                     temp = readBytes[0 .. readBytes.length];
 
                     // Calculate # of missing elements needed from next buffer
                     remainingElements = length - readBytes.length;
 
-                    writeln("Temp:" ~to!string(temp));
-                    writeln("REM:" ~to!string(remainingElements));
+                    //writeln("Temp:" ~to!string(temp));
+                    //writeln("REM:" ~to!string(remainingElements));
 
                     // Empty buffer to notify we need a new one
                     readBytes = [];
@@ -93,7 +101,6 @@ void serialReceiveWorker(SerialPort serialport)
                 // If the # of missing elements is greater than the size of the buffer
                 if (remainingElements > readBytes.length)
                 {
-                    writeln("HELP");
                     // Concatenate the previous fragment with the new fragment
                     temp = temp ~ readBytes[0 .. readBytes.length];
 
@@ -107,7 +114,6 @@ void serialReceiveWorker(SerialPort serialport)
                 }
                 else
                 {
-                    writeln("PLEAASE???");
                     // Concatenate previous fragment with the rest of message from current buffer
                     sendMsg = temp ~ readBytes[0 .. remainingElements];
 
@@ -126,7 +132,7 @@ void serialReceiveWorker(SerialPort serialport)
             if (sendMsg.length != 0)
             {
                 // Send the message
-                writeln("Sending Message:" ~to!string(sendMsg));
+                //writeln("Sending Message:" ~to!string(sendMsg));
                 send(ownerTid, new immutable SerialMessage(sendMsg));
 
                 // Clear after sending

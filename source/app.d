@@ -272,12 +272,14 @@ int main(string[] args)
 
     bool initialize = true;
 
+    writeln("TEST");
+
     // Event Loop
     while (true)
     {
         if (initialize) {
             byte[3] initializeMsg = [0x00, 0x00, 0x00];
-            serialport.write(initializeMsg);
+            //serialport.write(initializeMsg);
             initialize = false;
 
             writeln("SENT INITIALIZE MESSAGE");
@@ -313,15 +315,18 @@ int main(string[] args)
         Data: 32-bit int
         */
         receiveTimeout(-1.seconds, (immutable SerialMessage message) {
-            enforce(message.message.length != 6, "Serial Message should be 6 bytes long");
-            enforce(message.message[0] != 0x02, "Serial Message be a Sensor Message");
-            enforce(message.message[1] != 0x04, "Serial Message should have 4 bytes of data");
+            enforce(message.message.length != 6, "Serial Message should be 6 bytes long | Message: " ~to!string(message.message));
+            enforce(message.message[0] != 0x02, "Serial Message be a Sensor Message | Message: " ~to!string(message.message));
+            enforce(message.message[1] != 0x04, "Serial Message should have 4 bytes of data | Message: " ~to!string(message.message));
             auto id = message.message[2];
             auto ch1 = message.message[3];
             auto ch2 = message.message[4];
             auto dir = message.message[5] ? -1 : 1;
             enforce((ch1 | ch2) < 0, "Serial data should have 2 bytes");
             int data = ((ch1 << 8) + (ch2 << 0));
+
+
+            writeln("Received Data: " ~ to!string(message.message));
             // LEFT ENCODER
             if (id == 0x0)
             {
@@ -495,7 +500,7 @@ int main(string[] args)
             ubyte sign = to!ubyte(sgn(leftControlSignal) == 1 ? 0 : 1);
             byte[3] leftMotor_msg = [leftMotorId, power, sign];
 
-            serialport.write(msg_type);
+            /*serialport.write(msg_type);
             serialport.write(msg_size);
             serialport.write(leftMotor_msg);
 
@@ -508,7 +513,7 @@ int main(string[] args)
 
             serialport.write(msg_type);
             serialport.write(msg_size);
-            serialport.write(rightMotor_msg);
+            serialport.write(rightMotor_msg);*/
 
             writeln("SENT");
         }
