@@ -34,6 +34,8 @@ const double X_RIGHT_ENCODER = 915;
 //units: PIXELS
 const double LEN_BOTTOM_ARMS = 700;
 const double LEN_TOP_ARMS = 900;
+const double LEN_BETWEEN_SHAFTS = 450;
+
 
 class InvalidAnglesException : Exception
 {
@@ -63,7 +65,7 @@ auto inverseTransposeJacobian(double theta1, double theta2, double theta3, doubl
 {
     auto jacobian = slice!double(2, 2);
     auto row0 = jacobian[0];
-    auto row1 = jacobian[0];
+    auto row1 = jacobian[1];
     //This is the transpose Jacobian
     row0[0] = (LEN_BOTTOM_ARMS * sin(theta1 - theta3) * sin(theta4)) / (sin(theta3 - theta4));
     row1[0] = (LEN_BOTTOM_ARMS * sin(theta4 - theta2) * sin(theta3)) / (sin(theta3 - theta4));
@@ -88,19 +90,24 @@ ValuesFromInitialAngles getValuesFromInitialAngles(double theta1, double theta2,
     //double v2 = (-(LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS) + rightArmJointX*rightArmJointX + rightArmJointY*rightArmJointY) / (2*(rightArmJointX - leftArmJointX));
     double v3 = 1.0 + v1 * v1;
     double v4 = 2.0 * (v1 * v2 - v1 * leftArmJointX - leftArmJointY);
-    double v5 = -LEN_BOTTOM_ARMS * LEN_BOTTOM_ARMS + leftArmJointX * leftArmJointX
-        + leftArmJointY * leftArmJointY - 2.0 * v2 * leftArmJointX + v2 * v2;
+
+    double v5 = leftArmJointX * leftArmJointX - LEN_TOP_ARMS * LEN_TOP_ARMS +
+                leftArmJointY * leftArmJointY - 2.0 * v2 * leftArmJointX + v2 * v2;
+
     //double v5 = LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS*LEN_TOP_ARMS*LEN_TOP_ARMS - 2.0*v2*leftArmJointX + v2*v2;
 
     //stderr.writeln("TEST:" ~ " | v1: " ~ to!string(v1) ~ " | v2: " ~ to!string(v2) ~ " | v3: " ~ to!string(v3) ~ " | v4: " ~ to!string(v4) ~ " | v5: " ~ to!string(v5));
 
     double det = v4 * v4 - 4 * v3 * v5;
-
     ValuesFromInitialAngles ret;
 
     if (det < 0)
     {
-        throw new InvalidAnglesException("Impossible Angles Given");
+        if(det > -0.001){
+            det = 0;
+        } else {
+            throw new InvalidAnglesException("Impossible Angles Given");
+        }
     }
     double endY = (-v4 - sqrt(det)) / (2.0 * v3);
     double endX = v1 * endY + v2;
@@ -208,9 +215,9 @@ int main(string[] args)
 
         //Magnet Fields
         //Note: Strengths may need to be raised a ton or lowered a ton. I honestly dont know.
-        new MagnetFieldElement(918, 607, 32, 30, red, 10,
+        new MagnetFieldElement(918, 607, 32, 30, red, 1000,
                 MagnetFieldElement.POLARITY.PUSH),
-        new MagnetFieldElement(918, 679, 32, 30, blue, 10,
+        new MagnetFieldElement(918, 679, 32, 30, blue, 1000,
                 MagnetFieldElement.POLARITY.PULL),
 
         //Outside Walls
@@ -243,7 +250,7 @@ int main(string[] args)
         rightCurrentSensorReading;
 
     theta2 = acos((cast(double)(
-            2 * LEN_TOP_ARMS - (X_RIGHT_ENCODER - X_LEFT_ENCODER))) / 2 * LEN_BOTTOM_ARMS);
+            2 * LEN_TOP_ARMS - LEN_BETWEEN_SHAFTS)) / (2 * LEN_BOTTOM_ARMS));
     theta1 = PI - theta2;
 
     xForceSensorReading = 0;
@@ -258,14 +265,24 @@ int main(string[] args)
     // auto cursor = SDL_Rect(endEffector.x, endEffector.y, 10, 10);
 
     //bool ledOn = false;
-    bool mouseMode = true;
+    bool mouseMode = false;
 
     Pid leftMotorController = new Pid(0);
     Pid rightMotorController = new Pid(0);
 
+    bool initialize = true;
+
     // Event Loop
     while (true)
     {
+        if (initialize) {
+            byte[3] initializeMsg = [0x00, 0x00, 0x00];
+            serialport.write(initializeMsg);
+            initialize = false;
+
+            writeln("SENT INITIALIZE MESSAGE");
+        }
+
         SDL_Event event;
         while (SDL_PollEvent(&event))
         {
@@ -296,11 +313,13 @@ int main(string[] args)
         Data: 32-bit int
         */
         receiveTimeout(-1.seconds, (immutable SerialMessage message) {
-            enforce(message.message.length != 4, "Serial Message should be 4 bytes long");
-            auto id = message.message[0];
-            auto ch1 = message.message[1];
-            auto ch2 = message.message[2];
-            auto dir = message.message[3] ? -1 : 1;
+            enforce(message.message.length != 6, "Serial Message should be 6 bytes long");
+            enforce(message.message[0] != 0x02, "Serial Message be a Sensor Message");
+            enforce(message.message[1] != 0x04, "Serial Message should have 4 bytes of data");
+            auto id = message.message[2];
+            auto ch1 = message.message[3];
+            auto ch2 = message.message[4];
+            auto dir = message.message[5] ? -1 : 1;
             enforce((ch1 | ch2) < 0, "Serial data should have 2 bytes");
             int data = ((ch1 << 8) + (ch2 << 0));
             // LEFT ENCODER
@@ -318,6 +337,7 @@ int main(string[] args)
             if (id == 0x2)
             {
                 leftCurrentSensorReading = data * dir;
+                writeln("LEFT CURRENT SENSOR");
             }
             //RIGHT CURRENT SENSOR
             else if (id == 0x3)
@@ -440,7 +460,7 @@ int main(string[] args)
 
         if (!mouseMode)
         {
-            auto forceMatrix = [totalForce.x, totalForce.y].sliced(1, 2);
+            auto forceMatrix = [totalForce.x, totalForce.y].sliced(2, 1);
             auto torques = mldivide(inverseTransposeJacobian(theta1, theta2,
                     theta3, theta4), forceMatrix);
 
@@ -452,11 +472,14 @@ int main(string[] args)
             double leftCurrentReading = calculateRequiredCurrent(leftCurrentSensorReading);
             double rightCurrentReading = calculateRequiredCurrent(rightCurrentSensorReading);
 
+            writeln("Sensor Reading: " ~ to!string(leftCurrentSensorReading));
+            writeln("Current:"~to!string(leftCurrentReading));
+
             // Calculate the control signal according to error
             double leftControlSignal = leftMotorController.calculateControlSignal(
-                    leftCurrentSensorReading);
+                leftCurrentReading);
             double rightControlSignal = rightMotorController.calculateControlSignal(
-                    rightCurrentSensorReading);
+                rightCurrentReading);
 
             // Define message type and size
             byte[1] msg_type = [0x01];
@@ -468,12 +491,15 @@ int main(string[] args)
 
             // Create message for left motor and send
             ubyte power = to!ubyte(abs(leftControlSignal));
+
             ubyte sign = to!ubyte(sgn(leftControlSignal) == 1 ? 0 : 1);
             byte[3] leftMotor_msg = [leftMotorId, power, sign];
 
             serialport.write(msg_type);
             serialport.write(msg_size);
             serialport.write(leftMotor_msg);
+
+            writeln("?");
 
             // Create message for right motor and send
             power = to!ubyte(abs(rightControlSignal));
@@ -483,8 +509,8 @@ int main(string[] args)
             serialport.write(msg_type);
             serialport.write(msg_size);
             serialport.write(rightMotor_msg);
-        }
 
-        //TODO @will: use torques to send correct values to motors and/or brakes
+            writeln("SENT");
+        }
     }
 }

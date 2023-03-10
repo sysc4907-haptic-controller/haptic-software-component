@@ -2,6 +2,7 @@ import std.stdio;
 import std.algorithm : max;
 import std.concurrency : ownerTid, receiveTimeout, send, OwnerTerminated;
 import std.datetime : seconds;
+import std;
 
 import core.stdc.stdio : perror;
 
@@ -24,8 +25,9 @@ void serialReceiveWorker(SerialPort serialport)
     while (running)
     {
         // TODO: hack, we should use OS waiting
-        byte[16] buffer;
+        byte[6] buffer;
         byte[] readBytes = cast(byte[]) serialport.read(buffer);
+        writeln("First Buffer Reading:" ~to!string(readBytes));
         byte[] temp;
         byte[] sendMsg;
         int length = 0;
@@ -33,7 +35,7 @@ void serialReceiveWorker(SerialPort serialport)
 
         while (true)
         {
-
+            writeln("Buffer Reading:" ~to!string(readBytes));
             if (readBytes.length == 1 && length == -1) {
                 temp = readBytes;
             }
@@ -46,6 +48,7 @@ void serialReceiveWorker(SerialPort serialport)
                 } else {
                     readBytes = cast(byte[]) serialport.read(buffer);
                 }
+                writeln("New Buffer Reading:" ~to!string(readBytes));
             }
 
             // If an end index has not been defined (i.e., starting from 0th index with no fragment)
@@ -53,16 +56,20 @@ void serialReceiveWorker(SerialPort serialport)
             {
 
                 // Find length of message at 2nd bit
-                length = readBytes[1];
+                length = to!int(readBytes[1]) + 2;
 
                 // If the length of message is greater than the buffer size
                 if (length > readBytes.length)
                 {
+                    writeln("AGNAGHIHAWGOHG");
                     // Store the buffer contents into a temp array
                     temp = readBytes[0 .. readBytes.length];
 
                     // Calculate # of missing elements needed from next buffer
                     remainingElements = length - readBytes.length;
+
+                    writeln("Temp:" ~to!string(temp));
+                    writeln("REM:" ~to!string(remainingElements));
 
                     // Empty buffer to notify we need a new one
                     readBytes = [];
@@ -86,7 +93,7 @@ void serialReceiveWorker(SerialPort serialport)
                 // If the # of missing elements is greater than the size of the buffer
                 if (remainingElements > readBytes.length)
                 {
-
+                    writeln("HELP");
                     // Concatenate the previous fragment with the new fragment
                     temp = temp ~ readBytes[0 .. readBytes.length];
 
@@ -100,6 +107,7 @@ void serialReceiveWorker(SerialPort serialport)
                 }
                 else
                 {
+                    writeln("PLEAASE???");
                     // Concatenate previous fragment with the rest of message from current buffer
                     sendMsg = temp ~ readBytes[0 .. remainingElements];
 
@@ -118,6 +126,7 @@ void serialReceiveWorker(SerialPort serialport)
             if (sendMsg.length != 0)
             {
                 // Send the message
+                writeln("Sending Message:" ~to!string(sendMsg));
                 send(ownerTid, new immutable SerialMessage(sendMsg));
 
                 // Clear after sending
