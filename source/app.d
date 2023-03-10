@@ -315,14 +315,14 @@ int main(string[] args)
         Data: 32-bit int
         */
         receiveTimeout(-1.seconds, (immutable SerialMessage message) {
-            enforce(message.message.length != 6, "Serial Message should be 6 bytes long | Message: " ~to!string(message.message));
-            enforce(message.message[0] != 0x02, "Serial Message be a Sensor Message | Message: " ~to!string(message.message));
-            enforce(message.message[1] != 0x04, "Serial Message should have 4 bytes of data | Message: " ~to!string(message.message));
+            enforce(message.message.length == 6, "Serial Message should be 6 bytes long | Message: " ~to!string(message.message) ~ " | Message Length: "~to!string(message.message.length));
+            enforce(message.message[0] == 0x02, "Serial Message be a Sensor Message | Message: " ~to!string(message.message));
+            enforce(message.message[1] == 0x04, "Serial Message should have 4 bytes of data | Message: " ~to!string(message.message));
             auto id = message.message[2];
             auto ch1 = message.message[3];
             auto ch2 = message.message[4];
             auto dir = message.message[5] ? -1 : 1;
-            enforce((ch1 | ch2) < 0, "Serial data should have 2 bytes");
+            enforce((ch1 & ch2) >= 0, "Serial data should have 2 bytes");
             int data = ((ch1 << 8) + (ch2 << 0));
 
 
