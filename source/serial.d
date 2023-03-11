@@ -19,12 +19,15 @@ immutable class SerialMessage
     }
 }
 
+// Simulate current sensor readings from Arduino
 byte[] generateRandomArray() {
     byte[] arr;
     arr ~= [0x02, 0x04];
-    foreach(i; 0..4) {
-        arr ~= cast(ubyte) uniform(1, 10);
+    arr ~= cast(ubyte) uniform(1, 2);
+    foreach(i; 0..2) {
+        arr ~= cast(ubyte) uniform(1, 5);
     }
+    arr ~= cast(ubyte) uniform(0,1);
     return arr;
 }
 

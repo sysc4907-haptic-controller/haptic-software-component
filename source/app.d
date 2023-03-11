@@ -215,9 +215,9 @@ int main(string[] args)
 
         //Magnet Fields
         //Note: Strengths may need to be raised a ton or lowered a ton. I honestly dont know.
-        new MagnetFieldElement(918, 607, 32, 30, red, 1000,
+        new MagnetFieldElement(918, 607, 32, 30, red, 10,
                 MagnetFieldElement.POLARITY.PUSH),
-        new MagnetFieldElement(918, 679, 32, 30, blue, 1000,
+        new MagnetFieldElement(918, 679, 32, 30, blue, 10,
                 MagnetFieldElement.POLARITY.PULL),
 
         //Outside Walls
@@ -272,8 +272,6 @@ int main(string[] args)
 
     bool initialize = true;
 
-    writeln("TEST");
-
     // Event Loop
     while (true)
     {
@@ -281,8 +279,6 @@ int main(string[] args)
             byte[3] initializeMsg = [0x00, 0x00, 0x00];
             //serialport.write(initializeMsg);
             initialize = false;
-
-            writeln("SENT INITIALIZE MESSAGE");
         }
 
         SDL_Event event;
@@ -325,38 +321,39 @@ int main(string[] args)
             enforce((ch1 & ch2) >= 0, "Serial data should have 2 bytes");
             int data = ((ch1 << 8) + (ch2 << 0));
 
+            writeln("Message: " ~to!string(message.message));
 
-            writeln("Received Data: " ~ to!string(message.message));
             // LEFT ENCODER
-            if (id == 0x0)
+            if (id == 0x3)
             {
                 theta1 += data * (PI / 180.0) * dir;
             }
             //RIGHT ENCODER
-            else if (id == 0x1)
+            else if (id == 0x4)
             {
                 theta2 += data * (PI / 180.0) * dir;
             }
 
             // LEFT CURRENT SENSOR
-            if (id == 0x2)
+            if (id == 0x1)
             {
+                writeln("LEFT");
                 leftCurrentSensorReading = data * dir;
-                writeln("LEFT CURRENT SENSOR");
             }
             //RIGHT CURRENT SENSOR
-            else if (id == 0x3)
+            else if (id == 0x2)
             {
+                writeln("RIGHT");
                 rightCurrentSensorReading = data * dir;
             }
 
             // X FORCE SENSOR
-            if (id == 0x4)
+            if (id == 0x5)
             {
                 xForceSensorReading = data * dir;
             }
             //Y FORCE SENSOR
-            else if (id == 0x5)
+            else if (id == 0x6)
             {
                 yForceSensorReading = data * dir;
             }
@@ -477,8 +474,10 @@ int main(string[] args)
             double leftCurrentReading = calculateRequiredCurrent(leftCurrentSensorReading);
             double rightCurrentReading = calculateRequiredCurrent(rightCurrentSensorReading);
 
-            writeln("Sensor Reading: " ~ to!string(leftCurrentSensorReading));
-            writeln("Current:"~to!string(leftCurrentReading));
+            writeln("L Sensor Reading: " ~ to!string(leftCurrentSensorReading));
+            writeln("R Sensor Reading: " ~ to!string(rightCurrentSensorReading));
+            writeln("L Current:"~to!string(leftCurrentReading));
+            writeln("R Current:"~to!string(rightCurrentReading));
 
             // Calculate the control signal according to error
             double leftControlSignal = leftMotorController.calculateControlSignal(
@@ -514,8 +513,6 @@ int main(string[] args)
             serialport.write(msg_type);
             serialport.write(msg_size);
             serialport.write(rightMotor_msg);*/
-
-            writeln("SENT");
         }
     }
 }
