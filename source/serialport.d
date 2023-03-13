@@ -1,5 +1,5 @@
 import std.string : toStringz;
-
+import std.stdio;
 import std.format : format;
 
 version (Posix)
@@ -211,14 +211,29 @@ public:
                 cfg.BaudRate = cast(DWORD) baudRate;
             }
 
+            if (!SetCommState(cast(HandleType) _handle, &cfg))
+            {
+                throw new SysCallException("SetCommState failed.", GetLastError());
+            }
+
             if (cfg.Parity != NOPARITY)
             {
                 cfg.Parity = NOPARITY;
             }
 
+            if (!SetCommState(cast(HandleType) _handle, &cfg))
+            {
+                throw new SysCallException("SetCommState failed.", GetLastError());
+            }
+
             if (cfg.StopBits != ONESTOPBIT)
             {
                 cfg.StopBits = ONESTOPBIT;
+            }
+
+            if (!SetCommState(cast(HandleType) _handle, &cfg))
+            {
+                throw new SysCallException("SetCommState failed.", GetLastError());
             }
 
             if (cfg.ByteSize != 8)
@@ -230,6 +245,15 @@ public:
             {
                 throw new SysCallException("SetCommState failed.", GetLastError());
             }
+        }
+    }
+
+    void flush()
+    {
+        if (!FlushFileBuffers(cast(HandleType) _handle))
+        {
+            auto err = GetLastError();
+            throw new SysCallException("FlushFileBuffers failed.", err);
         }
     }
 
@@ -289,6 +313,8 @@ public:
         {
             throw new InvalidStateException("Port is closed.");
         }
+
+        writefln("writing %s", arr);
 
         auto ptr = arr.ptr;
         auto len = arr.length;
@@ -361,7 +387,7 @@ protected:
                     PURGE_TXABORT | PURGE_TXCLEAR | PURGE_RXABORT | PURGE_RXCLEAR);
 
             COMMTIMEOUTS tm;
-            tm.ReadIntervalTimeout = 0;
+            tm.ReadIntervalTimeout = DWORD.max;
             tm.ReadTotalTimeoutMultiplier = 0;
             tm.ReadTotalTimeoutConstant = 0;
             tm.WriteTotalTimeoutMultiplier = 0;

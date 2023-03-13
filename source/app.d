@@ -271,13 +271,47 @@ int main(string[] args)
     Pid rightMotorController = new Pid(0);
 
     bool initialize = true;
+    bool start = false;
 
     // Event Loop
     while (true)
     {
+        if (!start)
+        {
+            SDL_Event event1;
+            while (SDL_PollEvent(&event1))
+            {
+                if (event1.type == SDL_QUIT || (event1.type == SDL_KEYDOWN
+                && event1.key.keysym.sym == SDLK_q))
+                {
+                    return 0;
+                }
+
+                if (event1.type == SDL_KEYDOWN && event1.key.keysym.sym == SDLK_z)
+                {
+                    start = true;
+                    writeln("done");
+                    writeln(initialize);
+                }
+                writeln("loop");
+            }
+
+            SDL_RenderPresent(renderer);
+            writeln("a");
+            continue;
+        }
+        else
+        {
+            writeln("b");
+        }
+
         if (initialize) {
             byte[3] initializeMsg = [0x00, 0x00, 0x00];
-            //serialport.write(initializeMsg);
+            writeln("zzz");
+            serialport.write(initializeMsg);
+            writeln("Initialize: " ~to!string(initializeMsg));
+            //serialport.flush();
+            writeln("ZZZ");
             initialize = false;
         }
 
@@ -337,13 +371,11 @@ int main(string[] args)
             // LEFT CURRENT SENSOR
             if (id == 0x1)
             {
-                writeln("LEFT");
                 leftCurrentSensorReading = data * dir;
             }
             //RIGHT CURRENT SENSOR
             else if (id == 0x2)
             {
-                writeln("RIGHT");
                 rightCurrentSensorReading = data * dir;
             }
 
@@ -392,6 +424,7 @@ int main(string[] args)
         {
             try
             {
+                writeln("Theta: " ~to!string(theta1) ~ "| Theta 2: " ~to!string(theta2));
                 endPointsAndThetas = getValuesFromInitialAngles(theta1, theta2,
                         endEffector.y, endEffector.currVelocity);
             }
@@ -497,13 +530,15 @@ int main(string[] args)
             ubyte power = to!ubyte(abs(leftControlSignal));
 
             ubyte sign = to!ubyte(sgn(leftControlSignal) == 1 ? 0 : 1);
-            byte[3] leftMotor_msg = [leftMotorId, power, sign];
+            byte[6] leftMotor_msg = [0x01, 0x18, leftMotorId, power, sign, 0x00];
 
-            /*serialport.write(msg_type);
-            serialport.write(msg_size);
+            writeln("[gsfgsdgfdsgd");
+            writeln(leftMotor_msg);
             serialport.write(leftMotor_msg);
 
-            writeln("?");
+            writeln("Stuck");
+            //serialport.write(msg_size);
+            //serialport.write(leftMotor_msg);
 
             // Create message for right motor and send
             power = to!ubyte(abs(rightControlSignal));
@@ -512,7 +547,7 @@ int main(string[] args)
 
             serialport.write(msg_type);
             serialport.write(msg_size);
-            serialport.write(rightMotor_msg);*/
+            serialport.write(rightMotor_msg);
         }
     }
 }

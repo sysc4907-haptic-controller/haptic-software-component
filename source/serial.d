@@ -39,11 +39,11 @@ void serialReceiveWorker(SerialPort serialport)
         // TODO: hack, we should use OS waiting
         byte[6] buffer;
         byte[] readBytes = generateRandomArray();
+        writefln("Read %s", readBytes);
 
         if (readBytes.length != 0)
         {
             // Send the message
-            //writeln("Sending Message:" ~to!string(sendMsg));
             send(ownerTid, new immutable SerialMessage(readBytes));
 
         }
