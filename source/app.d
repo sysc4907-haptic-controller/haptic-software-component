@@ -290,28 +290,16 @@ int main(string[] args)
                 if (event1.type == SDL_KEYDOWN && event1.key.keysym.sym == SDLK_z)
                 {
                     start = true;
-                    writeln("done");
-                    writeln(initialize);
                 }
-                writeln("loop");
             }
 
             SDL_RenderPresent(renderer);
-            writeln("a");
             continue;
-        }
-        else
-        {
-            writeln("b");
         }
 
         if (initialize) {
-            byte[3] initializeMsg = [0x00, 0x00, 0x00];
-            writeln("zzz");
+            byte[5] initializeMsg = [0x76, 0x76, 0x00, 0x00, 0x00];
             serialport.write(initializeMsg);
-            writeln("Initialize: " ~to!string(initializeMsg));
-            //serialport.flush();
-            writeln("ZZZ");
             initialize = false;
         }
 
@@ -330,42 +318,27 @@ int main(string[] args)
                 mouseMode = !mouseMode;
             }
         }
-        /*
-        SENSOR IDS:
-        -------------------
-        LEFT ENCODER:  0x0
-        RIGHT ENCODER: 0x1
 
-        LEFT CURRENT SENSOR: 0x2
-        RIGHT CURRENT SENSOR: 0x3
-
-        X-FORCE SENSOR: 0x4
-        Y-FORCE SENSOR: 0x5
-
-        Data: 32-bit int
-        */
         receiveTimeout(-1.seconds, (immutable SerialMessage message) {
-            enforce(message.message.length == 6, "Serial Message should be 6 bytes long | Message: " ~to!string(message.message) ~ " | Message Length: "~to!string(message.message.length));
-            enforce(message.message[0] == 0x02, "Serial Message be a Sensor Message | Message: " ~to!string(message.message));
-            enforce(message.message[1] == 0x04, "Serial Message should have 4 bytes of data | Message: " ~to!string(message.message));
-            auto id = message.message[2];
-            auto ch1 = message.message[3];
-            auto ch2 = message.message[4];
-            auto dir = message.message[5] ? -1 : 1;
+            enforce(message.message.length == 8, "Serial Message should be 8 bytes long | Message: " ~to!string(message.message) ~ " | Message Length: "~to!string(message.message.length));
+            enforce(message.message[2] == 0x02, "Serial Message be a Sensor Message | Message: " ~to!string(message.message));
+            enforce(message.message[3] == 0x04, "Serial Message should have 4 bytes of data | Message: " ~to!string(message.message));
+            ubyte id = message.message[4];
+            ubyte ch1 = message.message[5];
+            ubyte ch2 = message.message[6];
+            int dir = message.message[7] ? -1 : 1;
             enforce((ch1 & ch2) >= 0, "Serial data should have 2 bytes");
-            int data = ((ch1 << 8) + (ch2 << 0));
-
-            writeln("Message: " ~to!string(message.message));
+            ushort data = ((ch1 << 8) | (ch2 << 0));
 
             // LEFT ENCODER
             if (id == 0x3)
             {
-                theta1 += data * (PI / 180.0) * dir;
+                theta1 += data * (PI / 180.0) * dir * (360.0/8192.0);
             }
             //RIGHT ENCODER
             else if (id == 0x4)
             {
-                theta2 += data * (PI / 180.0) * dir;
+                theta2 += data * (PI / 180.0) * dir * (360.0/8192.0);
             }
 
             // LEFT CURRENT SENSOR
@@ -424,7 +397,6 @@ int main(string[] args)
         {
             try
             {
-                writeln("Theta: " ~to!string(theta1) ~ "| Theta 2: " ~to!string(theta2));
                 endPointsAndThetas = getValuesFromInitialAngles(theta1, theta2,
                         endEffector.y, endEffector.currVelocity);
             }
@@ -507,11 +479,6 @@ int main(string[] args)
             double leftCurrentReading = calculateRequiredCurrent(leftCurrentSensorReading);
             double rightCurrentReading = calculateRequiredCurrent(rightCurrentSensorReading);
 
-            writeln("L Sensor Reading: " ~ to!string(leftCurrentSensorReading));
-            writeln("R Sensor Reading: " ~ to!string(rightCurrentSensorReading));
-            writeln("L Current:"~to!string(leftCurrentReading));
-            writeln("R Current:"~to!string(rightCurrentReading));
-
             // Calculate the control signal according to error
             double leftControlSignal = leftMotorController.calculateControlSignal(
                 leftCurrentReading);
@@ -528,25 +495,14 @@ int main(string[] args)
 
             // Create message for left motor and send
             ubyte power = to!ubyte(abs(leftControlSignal));
-
             ubyte sign = to!ubyte(sgn(leftControlSignal) == 1 ? 0 : 1);
-            byte[6] leftMotor_msg = [0x01, 0x18, leftMotorId, power, sign, 0x00];
-
-            writeln("[gsfgsdgfdsgd");
-            writeln(leftMotor_msg);
+            byte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, leftMotorId, power, sign];
             serialport.write(leftMotor_msg);
-
-            writeln("Stuck");
-            //serialport.write(msg_size);
-            //serialport.write(leftMotor_msg);
 
             // Create message for right motor and send
             power = to!ubyte(abs(rightControlSignal));
             sign = to!ubyte(sgn(rightControlSignal) == 1 ? 0 : 1);
-            byte[3] rightMotor_msg = [rightMotorId, power, sign];
-
-            serialport.write(msg_type);
-            serialport.write(msg_size);
+            byte[7] rightMotor_msg = [0x76, 0x76, 0x01, 0x3, rightMotorId, power, sign];
             serialport.write(rightMotor_msg);
         }
     }

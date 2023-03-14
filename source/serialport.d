@@ -314,8 +314,6 @@ public:
             throw new InvalidStateException("Port is closed.");
         }
 
-        writefln("writing %s", arr);
-
         auto ptr = arr.ptr;
         auto len = arr.length;
 

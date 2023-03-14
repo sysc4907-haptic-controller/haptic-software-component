@@ -44,27 +44,25 @@ void serialReceiveWorker(SerialPort serialport)
     int remainingElements = 0;
     while (running)
     {
-        // TODO: hack, we should use OS waiting
         // Read from buffer
         readBytes = cast(byte[]) serialport.read(buffer);
-        writefln("Array Generated: %s", readBytes);
         for (int i = 0; i < readBytes.length; i++)
         {
-            if (readBytes[i] == 0x76 && readBytes[i + 1] == 0x76 && remainingElements == 0)
+            if (readBytes[i] == 0x76 && readBytes[i + 1] == 0x76)
             {
+                temp = [];
                 remainingElements = msg_size;
             }
 
             if (remainingElements != 0 && temp.length != msg_size)
             {
-                writefln("Adding %s to temp: %s", readBytes[i], temp);
                 temp ~= readBytes[i];
                 remainingElements--;
             }
 
             if (temp.length == msg_size)
             {
-                send(ownerTid, new immutable SerialMessage(readBytes));
+                send(ownerTid, new immutable SerialMessage(temp));
                 temp = [];
             }
 
