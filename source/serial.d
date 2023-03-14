@@ -20,34 +20,55 @@ immutable class SerialMessage
 }
 
 // Simulate current sensor readings from Arduino
-byte[] generateRandomArray() {
+byte[] generateRandomArray()
+{
     byte[] arr;
     arr ~= [0x02, 0x04];
     arr ~= cast(ubyte) uniform(1, 2);
-    foreach(i; 0..2) {
+    foreach (i; 0 .. 2)
+    {
         arr ~= cast(ubyte) uniform(1, 5);
     }
-    arr ~= cast(ubyte) uniform(0,1);
+    arr ~= cast(ubyte) uniform(0, 1);
     return arr;
 }
 
 void serialReceiveWorker(SerialPort serialport)
 {
     bool running = true;
+
+    byte[16] buffer;
+    int msg_size = 8;
+    byte[] readBytes;
+    byte[] temp;
+    int remainingElements = 0;
     while (running)
     {
         // TODO: hack, we should use OS waiting
-        byte[6] buffer;
-        byte[] readBytes = generateRandomArray();
-        writefln("Read %s", readBytes);
-
-        if (readBytes.length != 0)
+        // Read from buffer
+        readBytes = cast(byte[]) serialport.read(buffer);
+        writefln("Array Generated: %s", readBytes);
+        for (int i = 0; i < readBytes.length; i++)
         {
-            // Send the message
-            send(ownerTid, new immutable SerialMessage(readBytes));
+            if (readBytes[i] == 0x76 && readBytes[i + 1] == 0x76 && remainingElements == 0)
+            {
+                remainingElements = msg_size;
+            }
 
+            if (remainingElements != 0 && temp.length != msg_size)
+            {
+                writefln("Adding %s to temp: %s", readBytes[i], temp);
+                temp ~= readBytes[i];
+                remainingElements--;
+            }
+
+            if (temp.length == msg_size)
+            {
+                send(ownerTid, new immutable SerialMessage(readBytes));
+                temp = [];
+            }
+
+            receiveTimeout(-1.seconds, (OwnerTerminated o) { running = false; });
         }
-
-        receiveTimeout(-1.seconds, (OwnerTerminated o) { running = false; });
     }
 }
