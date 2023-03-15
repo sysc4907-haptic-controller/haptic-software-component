@@ -247,13 +247,13 @@ int main(string[] args)
     SDL_GetMouseState(&mouseX, &mouseY);
     EndEffector endEffector = new EndEffector(mouseX, mouseY);
 
-    double theta1, theta2;
+    double THETA_1_INIT, THETA_2_INIT;
     int xForceSensorReading, yForceSensorReading, leftCurrentSensorReading,
         rightCurrentSensorReading;
 
-    theta2 = acos((cast(double)(
+    THETA_2_INIT = acos((cast(double)(
             2 * LEN_TOP_ARMS - LEN_BETWEEN_SHAFTS)) / (2 * LEN_BOTTOM_ARMS));
-    theta1 = PI - theta2;
+    THETA_1_INIT = PI - THETA_2_INIT;
 
     xForceSensorReading = 0;
     xForceSensorReading = 0;
@@ -321,8 +321,11 @@ int main(string[] args)
             }
         }
 
-        theta1 = sensorValueHolder.leftEncoder * (PI / 180.0) * (360.0/8192.0);
-        theta2 = sensorValueHolder.rightEncoder * (PI / 180.0) * (360.0/8192.0);
+        auto theta1 = THETA_1_INIT - sensorValueHolder.leftEncoder * (PI / 180.0) * (360.0/8192.0);
+        auto theta2 = THETA_2_INIT - sensorValueHolder.rightEncoder * (PI / 180.0) * (360.0/8192.0);
+        //writeln("THETAS: " ~to!string(sensorValueHolder.leftEncoder) ~ "," ~ to!string(sensorValueHolder.rightEncoder));
+
+        writeln("THETAS: " ~to!string(theta1) ~ "," ~ to!string(theta2));
 
         // Clear render with a white background
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
@@ -358,6 +361,8 @@ int main(string[] args)
             {
                 endPointsAndThetas = getValuesFromInitialAngles(theta1, theta2,
                         endEffector.y, endEffector.currVelocity);
+                //writeln("End Effector POS: " ~to!string(endPointsAndThetas.pos.x) ~ "," ~ to!string(endPointsAndThetas.pos.y));
+
             }
             catch (InvalidAnglesException e)
             {
@@ -370,6 +375,7 @@ int main(string[] args)
             theta4 = endPointsAndThetas.theta4;
 
             endEffector.update(endEffectorPosFromAngles);
+            //writeln("End Effector POS: " ~to!string(endEffector.x) ~ "," ~ to!string(endEffector.y));
         }
 
         // This setup is pretty janky, we definitely wanna change it to converging forces eventually
