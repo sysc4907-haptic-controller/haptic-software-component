@@ -1,43 +1,19 @@
 import std.stdio;
 import std.algorithm : max;
-import std.concurrency : ownerTid, receiveTimeout, send, OwnerTerminated;
+import std.concurrency : receiveTimeout, OwnerTerminated;
 import std.datetime : seconds;
 import std;
 
 import core.stdc.stdio : perror;
 
 import serialport : SerialPort;
+import sensorvalueholder;
 
-// Wrapper Class for messages sent through serial
-immutable class SerialMessage
-{
-    byte[] message;
-
-    this(byte[] message)
-    {
-        this.message = message.idup;
-    }
-}
-
-// Simulate current sensor readings from Arduino
-byte[] generateRandomArray()
-{
-    byte[] arr;
-    arr ~= [0x02, 0x04];
-    arr ~= cast(ubyte) uniform(1, 2);
-    foreach (i; 0 .. 2)
-    {
-        arr ~= cast(ubyte) uniform(1, 5);
-    }
-    arr ~= cast(ubyte) uniform(0, 1);
-    return arr;
-}
-
-void serialReceiveWorker(SerialPort serialport)
+void serialReceiveWorker(SerialPort serialport, SensorValueHolder sensorValueHolder)
 {
     bool running = true;
 
-    byte[16] buffer;
+    byte[32] buffer;
     int msg_size = 8;
     byte[] readBytes;
     byte[] temp;
@@ -62,7 +38,51 @@ void serialReceiveWorker(SerialPort serialport)
 
             if (temp.length == msg_size)
             {
-                send(ownerTid, new immutable SerialMessage(temp));
+                enforce(temp.length == 8, "Serial Message should be 8 bytes long | Message: " ~to!string(temp) ~ " | Message Length: "~to!string(temp.length));
+                enforce(temp[2] == 0x02, "Serial Message be a Sensor Message | Message: " ~to!string(temp));
+                enforce(temp[3] == 0x04, "Serial Message should have 4 bytes of data | Message: " ~to!string(temp));
+                ubyte id = temp[4];
+                ubyte ch1 = temp[5];
+                ubyte ch2 = temp[6];
+                int dir = temp[7] ? -1 : 1;
+                enforce((ch1 & ch2) >= 0, "Serial data should have 2 bytes");
+                ushort data = ((ch1 << 8) | (ch2 << 0));
+
+                // LEFT ENCODER
+                if (id == 0x3)
+                {
+                    short x = cast(short) (data * dir);
+                    sensorValueHolder.leftEncoder = x;
+                }
+                //RIGHT ENCODER
+                else if (id == 0x4)
+                {
+                    short x = cast(short) (data * dir);
+                    sensorValueHolder.rightEncoder = x;
+                }
+
+                /*// LEFT CURRENT SENSOR
+                if (id == 0x1)
+                {
+                    newClass.updateLeftCurrentSensor(data);
+                }
+                //RIGHT CURRENT SENSOR
+                else if (id == 0x2)
+                {
+                    newClass.updateRightCurrentSensor(data);
+                }
+
+                // X FORCE SENSOR
+                if (id == 0x5)
+                {
+                    newClass.updateXForceSensor(data);
+                }
+                //Y FORCE SENSOR
+                else if (id == 0x6)
+                {
+                    .updateYForcerSensor(data);
+                }*/
+
                 temp = [];
             }
 

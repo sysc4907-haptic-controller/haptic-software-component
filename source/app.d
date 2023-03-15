@@ -2,7 +2,7 @@ import std.stdio : write, writeln, readln, stderr;
 import std.string : fromStringz;
 import std.datetime : seconds;
 import std.variant : Variant;
-import std.concurrency : receiveTimeout, receive, spawn, Tid, thisTid, send;
+import std.concurrency : spawn;
 import std.file;
 import std.exception : enforce;
 import std.conv : to;
@@ -16,9 +16,10 @@ import bindbc.sdl;
 import bindbcLoader = bindbc.loader.sharedlib;
 import serialport : SerialPort;
 
-import serial : serialReceiveWorker, SerialMessage;
+import serial : serialReceiveWorker;
 import sim;
 import pid;
+import sensorvalueholder;
 
 // Motor-related Values
 private double noLoadRpm = 7600;
@@ -201,7 +202,8 @@ int main(string[] args)
     //     serialport.close();
     // }
 
-    spawn(&serialReceiveWorker, serialport);
+    SensorValueHolder sensorValueHolder = new SensorValueHolder;
+    spawn(&serialReceiveWorker, serialport, sensorValueHolder);
 
     auto black = SDL_Color(0, 0, 0);
     auto red = SDL_Color(255, 0, 0);
@@ -319,51 +321,8 @@ int main(string[] args)
             }
         }
 
-        receiveTimeout(-1.seconds, (immutable SerialMessage message) {
-            enforce(message.message.length == 8, "Serial Message should be 8 bytes long | Message: " ~to!string(message.message) ~ " | Message Length: "~to!string(message.message.length));
-            enforce(message.message[2] == 0x02, "Serial Message be a Sensor Message | Message: " ~to!string(message.message));
-            enforce(message.message[3] == 0x04, "Serial Message should have 4 bytes of data | Message: " ~to!string(message.message));
-            ubyte id = message.message[4];
-            ubyte ch1 = message.message[5];
-            ubyte ch2 = message.message[6];
-            int dir = message.message[7] ? -1 : 1;
-            enforce((ch1 & ch2) >= 0, "Serial data should have 2 bytes");
-            ushort data = ((ch1 << 8) | (ch2 << 0));
-
-            // LEFT ENCODER
-            if (id == 0x3)
-            {
-                theta1 += data * (PI / 180.0) * dir * (360.0/8192.0);
-            }
-            //RIGHT ENCODER
-            else if (id == 0x4)
-            {
-                theta2 += data * (PI / 180.0) * dir * (360.0/8192.0);
-            }
-
-            // LEFT CURRENT SENSOR
-            if (id == 0x1)
-            {
-                leftCurrentSensorReading = data * dir;
-            }
-            //RIGHT CURRENT SENSOR
-            else if (id == 0x2)
-            {
-                rightCurrentSensorReading = data * dir;
-            }
-
-            // X FORCE SENSOR
-            if (id == 0x5)
-            {
-                xForceSensorReading = data * dir;
-            }
-            //Y FORCE SENSOR
-            else if (id == 0x6)
-            {
-                yForceSensorReading = data * dir;
-            }
-
-        });
+        theta1 = sensorValueHolder.leftEncoder * (PI / 180.0) * (360.0/8192.0);
+        theta2 = sensorValueHolder.rightEncoder * (PI / 180.0) * (360.0/8192.0);
 
         // Clear render with a white background
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
