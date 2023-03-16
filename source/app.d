@@ -1,4 +1,4 @@
-import std.stdio : write, writeln, readln, stderr;
+import std.stdio : write, writeln, readln, stderr, stdout;
 import std.string : fromStringz;
 import std.datetime : seconds;
 import std.variant : Variant;
@@ -11,10 +11,11 @@ import std.math;
 import std.math.rounding : round;
 import kaleidic.lubeck : mldivide, inv;
 import mir.ndslice;
-
+import std.datetime.stopwatch : StopWatch, AutoStart;
 import bindbc.sdl;
 import bindbcLoader = bindbc.loader.sharedlib;
 import serialport : SerialPort;
+import core.time : msecs, usecs;
 
 import serial : serialReceiveWorker;
 import sim;
@@ -209,37 +210,12 @@ int main(string[] args)
     auto red = SDL_Color(255, 0, 0);
     auto blue = SDL_Color(0, 0, 255);
     auto orange = SDL_Color(255, 165, 0);
-
+    auto grey = SDL_Color(128, 128, 128);
     // List of the elements a part of the system (walls, fields, surfaces)
     SimulationElement[] elements = [
-        //Honey
-        new ViscousElement(292, 548, 144, 259, orange, 0.7),
-
-        //Magnet Fields
-        //Note: Strengths may need to be raised a ton or lowered a ton. I honestly dont know.
-        new MagnetFieldElement(918, 607, 32, 30, red, 10,
-                MagnetFieldElement.POLARITY.PUSH),
-        new MagnetFieldElement(918, 679, 32, 30, blue, 10,
-                MagnetFieldElement.POLARITY.PULL),
-
-        //Outside Walls
-        new ImpassableElement(289, 545, 249, 30, black),
-        new ImpassableElement(535, 395, 30, 180, black),
-        new ImpassableElement(535, 395, 323, 30, black),
-        new ImpassableElement(855, 395, 30, 153, black),
-        new ImpassableElement(855, 544, 224, 30, black),
-        new ImpassableElement(1076, 544, 30, 293, black),
-        new ImpassableElement(289, 807, 790, 30, black),
-        new ImpassableElement(289, 545, 30, 265, black),
-
-        //Inside Walls
-        new ImpassableElement(678, 441, 30, 146, black),
-        new ImpassableElement(572, 688, 232, 30, black),
-        new ImpassableElement(918, 637, 32, 42, black),
-
-        //Magnet-Walls
-        new ImpassableElement(918, 607, 32, 30, red),
-        new ImpassableElement(918, 679, 32, 30, blue)
+        //GRAVEL
+        new GravelElement(500, 300, 400, 400, grey),
+        new ViscousElement(100, 300, 400, 400, orange, 0.5)
     ];
 
     // Create the end effector representation in simulation
@@ -248,18 +224,10 @@ int main(string[] args)
     EndEffector endEffector = new EndEffector(mouseX, mouseY);
 
     double THETA_1_INIT, THETA_2_INIT;
-    int xForceSensorReading, yForceSensorReading, leftCurrentSensorReading,
-        rightCurrentSensorReading;
 
     THETA_2_INIT = acos((cast(double)(
             2 * LEN_TOP_ARMS - LEN_BETWEEN_SHAFTS)) / (2 * LEN_BOTTOM_ARMS));
     THETA_1_INIT = PI - THETA_2_INIT;
-
-    xForceSensorReading = 0;
-    xForceSensorReading = 0;
-
-    leftCurrentSensorReading = 0;
-    rightCurrentSensorReading = 0;
 
     auto background = SDL_Rect(0, 0, 1300, 1000);
 
@@ -274,6 +242,12 @@ int main(string[] args)
 
     bool initialize = true;
     bool start = false;
+    bool printedError = false;
+
+    auto sw = StopWatch(AutoStart.no);
+    int gravelLoop = 0;
+    ubyte[3] leftGravelArray = [200, 0x00, 200];
+    ubyte[3] rightGravelArray = [200, 200, 0x00];
 
     // Event Loop
     while (true)
@@ -303,6 +277,7 @@ int main(string[] args)
             byte[5] initializeMsg = [0x76, 0x76, 0x00, 0x00, 0x00];
             serialport.write(initializeMsg);
             initialize = false;
+            sw.start();
         }
 
         SDL_Event event;
@@ -323,9 +298,8 @@ int main(string[] args)
 
         auto theta1 = THETA_1_INIT - sensorValueHolder.leftEncoder * (PI / 180.0) * (360.0/8192.0);
         auto theta2 = THETA_2_INIT - sensorValueHolder.rightEncoder * (PI / 180.0) * (360.0/8192.0);
-        //writeln("THETAS: " ~to!string(sensorValueHolder.leftEncoder) ~ "," ~ to!string(sensorValueHolder.rightEncoder));
 
-        writeln("THETAS: " ~to!string(theta1) ~ "," ~ to!string(theta2));
+        //writeln("THETAS: " ~to!string(theta1) ~ "," ~ to!string(theta2));
 
         // Clear render with a white background
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
@@ -361,27 +335,25 @@ int main(string[] args)
             {
                 endPointsAndThetas = getValuesFromInitialAngles(theta1, theta2,
                         endEffector.y, endEffector.currVelocity);
-                //writeln("End Effector POS: " ~to!string(endPointsAndThetas.pos.x) ~ "," ~ to!string(endPointsAndThetas.pos.y));
 
+                endEffectorPosFromAngles = endPointsAndThetas.pos;
+                theta3 = endPointsAndThetas.theta3;
+                theta4 = endPointsAndThetas.theta4;
+
+                endEffector.update(endEffectorPosFromAngles);
+                printedError = false;
             }
             catch (InvalidAnglesException e)
             {
-                stderr.writeln("ERROR CALCULATING END POINT FOR THE FOLLOWING THETA_1: " ~ to!string(
+                if (!printedError)
+                {
+                    stderr.writeln("ERROR CALCULATING END POINT FOR THE FOLLOWING THETA_1: " ~ to!string(
                         theta1) ~ " | THETA_2: " ~ to!string(theta2));
-                continue;
+                    printedError = true;
+                }
             }
-            endEffectorPosFromAngles = endPointsAndThetas.pos;
-            theta3 = endPointsAndThetas.theta3;
-            theta4 = endPointsAndThetas.theta4;
-
-            endEffector.update(endEffectorPosFromAngles);
             //writeln("End Effector POS: " ~to!string(endEffector.x) ~ "," ~ to!string(endEffector.y));
         }
-
-        // This setup is pretty janky, we definitely wanna change it to converging forces eventually
-        auto currentPosition = new PositionVector(endEffector.x, endEffector.y);
-        auto totalForce = new ForceVector(0, 0);
-        auto currentForce = endEffector.calculateForce();
 
         // Draw the cursor
         SDL_SetRenderDrawColor(renderer, 0, 255, 0, SDL_ALPHA_OPAQUE);
@@ -390,85 +362,65 @@ int main(string[] args)
         // "Load" all elements to the render
         SDL_RenderPresent(renderer);
 
-        // Check the magnetic forces
-        foreach (SimulationElement element; elements)
-        {
-            if (cast(MagnetFieldElement) element)
-            {
-                auto force = element.force(currentPosition, currentForce);
-                totalForce.x += force.x;
-                totalForce.y += force.y;
-                currentForce.x += force.x;
-                currentForce.y += force.y;
-            }
-        }
-
-        // Check the reactive forces from viscous elements
-        foreach (SimulationElement element; elements)
-        {
-            if (cast(ViscousElement) element)
-            {
-                auto force = element.force(currentPosition, currentForce);
-                totalForce.x += force.x;
-                totalForce.y += force.y;
-                currentForce.x += force.x;
-                currentForce.y += force.y;
-            }
-        }
-
-        // Check normal forces from impassable elements
-        foreach (SimulationElement element; elements)
-        {
-            if (cast(ImpassableElement) element)
-            {
-                auto force = element.force(currentPosition, currentForce);
-                totalForce.x += force.x;
-                totalForce.y += force.y;
-            }
-        }
-        if (!totalForce.isEmpty())
-            stderr.writeln("Horizontal Force (N): " ~ to!string(
-                    totalForce.x) ~ " | Vertical Force(N): " ~ to!string(totalForce.y));
-
         if (!mouseMode)
         {
-            auto forceMatrix = [totalForce.x, totalForce.y].sliced(2, 1);
-            auto torques = mldivide(inverseTransposeJacobian(theta1, theta2,
-                    theta3, theta4), forceMatrix);
-
-            // Update target current according to required torques to simulate forces
-            leftMotorController.updateTarget(torques[0][0] / motorTorqueConstant);
-            rightMotorController.updateTarget(torques[1][0] / motorTorqueConstant);
-
-            // Calculate current readings from sensors
-            double leftCurrentReading = calculateRequiredCurrent(leftCurrentSensorReading);
-            double rightCurrentReading = calculateRequiredCurrent(rightCurrentSensorReading);
-
-            // Calculate the control signal according to error
-            double leftControlSignal = leftMotorController.calculateControlSignal(
-                leftCurrentReading);
-            double rightControlSignal = rightMotorController.calculateControlSignal(
-                rightCurrentReading);
-
-            // Define message type and size
-            byte[1] msg_type = [0x01];
-            byte[1] msg_size = [0x18];
-
             // Define motor IDs
-            ubyte leftMotorId = 0x01;
-            ubyte rightMotorId = 0x02;
+            enum ubyte leftMotorID = 1;
+            enum ubyte rightMotorID = 2;
+            enum ubyte leftBrakeID = 3;
+            enum ubyte rightBrakeID = 4;
 
-            // Create message for left motor and send
-            ubyte power = to!ubyte(abs(leftControlSignal));
-            ubyte sign = to!ubyte(sgn(leftControlSignal) == 1 ? 0 : 1);
-            byte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, leftMotorId, power, sign];
-            serialport.write(leftMotor_msg);
+            //GRAVEL ELEM
+            if(endEffector.x >= elements[0].rect.x &&
+                endEffector.x <= elements[0].rect.x + elements[0].rect.w &&
+                endEffector.y >= elements[0].rect.y &&
+                endEffector.y <= elements[0].rect.y + elements[0].rect.h)
+            {
+                if(sw.peek() >= usecs(20*1000)){
+                    ubyte leftPower = leftGravelArray[gravelLoop];
+                    ubyte rightPower = rightGravelArray[gravelLoop];
+                    gravelLoop = gravelLoop+1 >= 3 ? 0 : gravelLoop+1;
 
-            // Create message for right motor and send
-            power = to!ubyte(abs(rightControlSignal));
-            sign = to!ubyte(sgn(rightControlSignal) == 1 ? 0 : 1);
-            byte[7] rightMotor_msg = [0x76, 0x76, 0x01, 0x3, rightMotorId, power, sign];
-            serialport.write(rightMotor_msg);
+                    ubyte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, leftBrakeID, leftPower, 0x00];
+                    serialport.write(leftMotor_msg);
+
+                    ubyte[7] rightBrake_msg = [0x76, 0x76, 0x01, 0x3, rightBrakeID, rightPower, 0x00];
+                    serialport.write(rightBrake_msg);
+                    sw.reset();
+                    writeln(rightBrake_msg);
+                    stdout.flush();
+                }
+            }
+            //HONEY ELEM
+            else if(endEffector.x >= elements[1].rect.x &&
+            endEffector.x <= elements[1].rect.x + elements[1].rect.w &&
+            endEffector.y >= elements[1].rect.y &&
+            endEffector.y <= elements[1].rect.y + elements[1].rect.h)
+            {
+
+                ubyte leftPower =200;
+                ubyte rightPower =200;
+
+                ubyte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, leftBrakeID, leftPower, 0x00];
+                serialport.write(leftMotor_msg);
+
+                ubyte[7] rightBrake_msg = [0x76, 0x76, 0x01, 0x3, rightBrakeID, rightPower, 0x00];
+                serialport.write(rightBrake_msg);
+                writeln(rightBrake_msg);
+                stdout.flush();
+            }
+            else
+            {
+                ubyte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, leftBrakeID, 0, 0x00];
+                serialport.write(leftMotor_msg);
+
+                ubyte[7] rightBrake_msg = [0x76, 0x76, 0x01, 0x3, rightBrakeID, 0, 0x00];
+                serialport.write(rightBrake_msg);
+            }
+                //writeln("StopWatch: " ~ to!string(sw.peek()));
         }
+
+        //ubyte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, 4, 200, 0x00];
+        //serialport.write(leftMotor_msg);
     }
 }

@@ -71,6 +71,18 @@ class SimulationElement
     }
 }
 
+class GravelElement : SimulationElement
+{
+    this(int topLeftX, int topLeftY, uint length, uint height, SDL_Color colour)
+    {
+        super(topLeftX, topLeftY, length, height, colour);
+    }
+    override public ForceVector force(PositionVector endEffectorPos, ForceVector incEndEffectorForce)
+    {
+        return new ForceVector(0,0);
+    }
+}
+
 class MagnetFieldElement : SimulationElement
 {
     //SO FOR NOW WHEN A MAGNET IS CREATED A CORRESPONDING WALL NEEDS TO BE CREATED WHERE THE MAGNET WOULD EXIST
