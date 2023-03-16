@@ -38,7 +38,6 @@ const double LEN_BOTTOM_ARMS = 700;
 const double LEN_TOP_ARMS = 900;
 const double LEN_BETWEEN_SHAFTS = 450;
 
-
 class InvalidAnglesException : Exception
 {
     this(string msg) @safe pure nothrow @nogc
@@ -93,8 +92,8 @@ ValuesFromInitialAngles getValuesFromInitialAngles(double theta1, double theta2,
     double v3 = 1.0 + v1 * v1;
     double v4 = 2.0 * (v1 * v2 - v1 * leftArmJointX - leftArmJointY);
 
-    double v5 = leftArmJointX * leftArmJointX - LEN_TOP_ARMS * LEN_TOP_ARMS +
-                leftArmJointY * leftArmJointY - 2.0 * v2 * leftArmJointX + v2 * v2;
+    double v5 = leftArmJointX * leftArmJointX - LEN_TOP_ARMS * LEN_TOP_ARMS
+        + leftArmJointY * leftArmJointY - 2.0 * v2 * leftArmJointX + v2 * v2;
 
     //double v5 = LEN_BOTTOM_ARMS*LEN_BOTTOM_ARMS*LEN_TOP_ARMS*LEN_TOP_ARMS - 2.0*v2*leftArmJointX + v2*v2;
 
@@ -105,9 +104,12 @@ ValuesFromInitialAngles getValuesFromInitialAngles(double theta1, double theta2,
 
     if (det < 0)
     {
-        if(det > -0.001){
+        if (det > -0.001)
+        {
             det = 0;
-        } else {
+        }
+        else
+        {
             throw new InvalidAnglesException("Impossible Angles Given");
         }
     }
@@ -166,6 +168,25 @@ int main(string[] args)
         return 1;
     }
 
+    auto sdlImageLoadResult = loadSDLImage();
+
+    if(sdlImageLoadResult != sdlImageSupport) {
+
+        writeln("Failed to load SDL Image.");
+
+        foreach (error; bindbcLoader.errors)
+        {
+            writeln("Loader error: ", fromStringz(error.error), ": ", fromStringz(error.message));
+        }
+        return 1;
+    }
+
+    auto imgFlags = IMG_INIT_PNG | IMG_INIT_JPG;
+    if (!(IMG_Init(imgFlags) != imgFlags))
+    {
+        writeln("SDL_image could not initialize! SDL_image Error: %s\n", IMG_GetError());
+    }
+
     auto error = SDL_Init(SDL_INIT_VIDEO);
 
     // Create 1300x1000 window - size can be adjusted in future
@@ -196,6 +217,9 @@ int main(string[] args)
         SDL_DestroyRenderer(renderer);
     }
 
+    auto gravelSurface = IMG_Load("gravel.jpg");
+    auto gravelTexture = SDL_CreateTextureFromSurface(renderer, gravelSurface);
+
     shared serialport = new shared SerialPort(args[1], 115200);
     // TODO: See if we can get this to work
     // scope (exit)
@@ -225,8 +249,7 @@ int main(string[] args)
 
     double THETA_1_INIT, THETA_2_INIT;
 
-    THETA_2_INIT = acos((cast(double)(
-            2 * LEN_TOP_ARMS - LEN_BETWEEN_SHAFTS)) / (2 * LEN_BOTTOM_ARMS));
+    THETA_2_INIT = acos((cast(double)(2 * LEN_TOP_ARMS - LEN_BETWEEN_SHAFTS)) / (2 * LEN_BOTTOM_ARMS));
     THETA_1_INIT = PI - THETA_2_INIT;
 
     auto background = SDL_Rect(0, 0, 1300, 1000);
@@ -241,7 +264,6 @@ int main(string[] args)
     Pid rightMotorController = new Pid(0);
 
     bool initialize = true;
-    bool start = false;
     bool printedError = false;
 
     auto sw = StopWatch(AutoStart.no);
@@ -252,28 +274,8 @@ int main(string[] args)
     // Event Loop
     while (true)
     {
-        if (!start)
+        if (initialize)
         {
-            SDL_Event event1;
-            while (SDL_PollEvent(&event1))
-            {
-                if (event1.type == SDL_QUIT || (event1.type == SDL_KEYDOWN
-                && event1.key.keysym.sym == SDLK_q))
-                {
-                    return 0;
-                }
-
-                if (event1.type == SDL_KEYDOWN && event1.key.keysym.sym == SDLK_z)
-                {
-                    start = true;
-                }
-            }
-
-            SDL_RenderPresent(renderer);
-            continue;
-        }
-
-        if (initialize) {
             byte[5] initializeMsg = [0x76, 0x76, 0x00, 0x00, 0x00];
             serialport.write(initializeMsg);
             initialize = false;
@@ -296,8 +298,8 @@ int main(string[] args)
             }
         }
 
-        auto theta1 = THETA_1_INIT - sensorValueHolder.leftEncoder * (PI / 180.0) * (360.0/8192.0);
-        auto theta2 = THETA_2_INIT - sensorValueHolder.rightEncoder * (PI / 180.0) * (360.0/8192.0);
+        auto theta1 = THETA_1_INIT - sensorValueHolder.leftEncoder * (PI / 180.0) * (360.0 / 8192.0);
+        auto theta2 = THETA_2_INIT - sensorValueHolder.rightEncoder * (PI / 180.0) * (360.0 / 8192.0);
 
         //writeln("THETAS: " ~to!string(theta1) ~ "," ~ to!string(theta2));
 
@@ -307,7 +309,7 @@ int main(string[] args)
         SDL_RenderClear(renderer);
 
         // Draw each simulation element
-        foreach (SimulationElement element; elements)
+       /* foreach (SimulationElement element; elements)
         {
             element.draw(renderer);
 
@@ -317,7 +319,9 @@ int main(string[] args)
             {
                 SDL_WarpMouseInWindow(window, endEffector.x, endEffector.y);
             }
-        }
+        }*/
+        elements[1].draw(renderer);
+        SDL_RenderCopy(renderer, gravelTexture, null, &elements[0].rect);
         PositionVector endEffectorPosFromAngles;
         double theta3;
         double theta4;
@@ -348,7 +352,7 @@ int main(string[] args)
                 if (!printedError)
                 {
                     stderr.writeln("ERROR CALCULATING END POINT FOR THE FOLLOWING THETA_1: " ~ to!string(
-                        theta1) ~ " | THETA_2: " ~ to!string(theta2));
+                            theta1) ~ " | THETA_2: " ~ to!string(theta2));
                     printedError = true;
                 }
             }
@@ -356,7 +360,7 @@ int main(string[] args)
         }
 
         // Draw the cursor
-        SDL_SetRenderDrawColor(renderer, 0, 255, 0, SDL_ALPHA_OPAQUE);
+        SDL_SetRenderDrawColor(renderer, 255, 0, 0, SDL_ALPHA_OPAQUE);
         endEffector.draw(renderer);
 
         // "Load" all elements to the render
@@ -371,20 +375,25 @@ int main(string[] args)
             enum ubyte rightBrakeID = 4;
 
             //GRAVEL ELEM
-            if(endEffector.x >= elements[0].rect.x &&
-                endEffector.x <= elements[0].rect.x + elements[0].rect.w &&
-                endEffector.y >= elements[0].rect.y &&
-                endEffector.y <= elements[0].rect.y + elements[0].rect.h)
+            if (endEffector.x >= elements[0].rect.x
+                    && endEffector.x <= elements[0].rect.x + elements[0].rect.w
+                    && endEffector.y >= elements[0].rect.y
+                    && endEffector.y <= elements[0].rect.y + elements[0].rect.h)
             {
-                if(sw.peek() >= usecs(20*1000)){
+                if (sw.peek() >= usecs(20 * 1000))
+                {
                     ubyte leftPower = leftGravelArray[gravelLoop];
                     ubyte rightPower = rightGravelArray[gravelLoop];
-                    gravelLoop = gravelLoop+1 >= 3 ? 0 : gravelLoop+1;
+                    gravelLoop = gravelLoop + 1 >= 3 ? 0 : gravelLoop + 1;
 
-                    ubyte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, leftBrakeID, leftPower, 0x00];
+                    ubyte[7] leftMotor_msg = [
+                        0x76, 0x76, 0x01, 0x3, leftBrakeID, leftPower, 0x00
+                    ];
                     serialport.write(leftMotor_msg);
 
-                    ubyte[7] rightBrake_msg = [0x76, 0x76, 0x01, 0x3, rightBrakeID, rightPower, 0x00];
+                    ubyte[7] rightBrake_msg = [
+                        0x76, 0x76, 0x01, 0x3, rightBrakeID, rightPower, 0x00
+                    ];
                     serialport.write(rightBrake_msg);
                     sw.reset();
                     writeln(rightBrake_msg);
@@ -392,32 +401,40 @@ int main(string[] args)
                 }
             }
             //HONEY ELEM
-            else if(endEffector.x >= elements[1].rect.x &&
-            endEffector.x <= elements[1].rect.x + elements[1].rect.w &&
-            endEffector.y >= elements[1].rect.y &&
-            endEffector.y <= elements[1].rect.y + elements[1].rect.h)
+        else if (endEffector.x >= elements[1].rect.x
+                    && endEffector.x <= elements[1].rect.x + elements[1].rect.w
+                    && endEffector.y >= elements[1].rect.y
+                    && endEffector.y <= elements[1].rect.y + elements[1].rect.h)
             {
 
-                ubyte leftPower =200;
-                ubyte rightPower =200;
+                ubyte leftPower = 200;
+                ubyte rightPower = 200;
 
-                ubyte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, leftBrakeID, leftPower, 0x00];
+                ubyte[7] leftMotor_msg = [
+                    0x76, 0x76, 0x01, 0x3, leftBrakeID, leftPower, 0x00
+                ];
                 serialport.write(leftMotor_msg);
 
-                ubyte[7] rightBrake_msg = [0x76, 0x76, 0x01, 0x3, rightBrakeID, rightPower, 0x00];
+                ubyte[7] rightBrake_msg = [
+                    0x76, 0x76, 0x01, 0x3, rightBrakeID, rightPower, 0x00
+                ];
                 serialport.write(rightBrake_msg);
                 writeln(rightBrake_msg);
                 stdout.flush();
             }
             else
             {
-                ubyte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, leftBrakeID, 0, 0x00];
+                ubyte[7] leftMotor_msg = [
+                    0x76, 0x76, 0x01, 0x3, leftBrakeID, 0, 0x00
+                ];
                 serialport.write(leftMotor_msg);
 
-                ubyte[7] rightBrake_msg = [0x76, 0x76, 0x01, 0x3, rightBrakeID, 0, 0x00];
+                ubyte[7] rightBrake_msg = [
+                    0x76, 0x76, 0x01, 0x3, rightBrakeID, 0, 0x00
+                ];
                 serialport.write(rightBrake_msg);
             }
-                //writeln("StopWatch: " ~ to!string(sw.peek()));
+            //writeln("StopWatch: " ~ to!string(sw.peek()));
         }
 
         //ubyte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, 4, 200, 0x00];

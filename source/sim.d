@@ -319,6 +319,20 @@ class EndEffector
 
     public void draw(SDL_Renderer* renderer)
     {
+        /*
+        for (int w = 0; w < RADIUS * 2; w++)
+        {
+            for (int h = 0; h < RADIUS * 2; h++)
+            {
+                int dx = RADIUS - w; // horizontal offset
+                int dy = RADIUS - h; // vertical offset
+                if ((dx*dx + dy*dy) <= (RADIUS * RADIUS))
+                {
+                    SDL_RenderDrawPoint(renderer, x + dx, y + dy);
+                }
+            }
+        }
+*/
         int updatingX = RADIUS - 1;
         int updatingY = 0;
         int tx = 1;
