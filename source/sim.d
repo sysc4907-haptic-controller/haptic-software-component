@@ -229,7 +229,9 @@ class EndEffector
     }
 
     void update(PositionVector pos){
-        update(cast(int) round(pos.x), cast(int) round(pos.y));
+        int x = cast(int) round(pos.x);
+        int y = cast(int) round(pos.y);
+        update(x, y);
     }
 
     // Updates the position and time of the end effector accordingly
@@ -256,7 +258,9 @@ class EndEffector
         double deltaTime = (currTime - prevTime).total!"msecs";
         auto accX = (currVelocity.x - prevVelocity.x) / deltaTime;
         auto accY = (currVelocity.y - prevVelocity.y) / deltaTime;
-        return new ForceVector(accX * MASS, accY * MASS);
+        auto xForce = (accX * MASS > 0.000001 ? accX * MASS : 0);
+        auto yForce = (accY * MASS > 0.000001 ? accY * MASS : 0);
+        return new ForceVector(xForce, yForce);
     }
 
     bool collisionCalc(SimulationElement element, int x, int y)

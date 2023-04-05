@@ -26,6 +26,9 @@ class Pid
     // Calculates the control signal from the error, proportional and integral
     public double calculateControlSignal(double currentValue)
     {
+        if (currentValue <=50 && currentValue >=-50) {
+            currentValue = 0;
+        }
         //writeln("Current Target: " ~to!string(currentTarget));
         MonoTime currentTime = MonoTime.currTime;
         double currentError = currentTarget - currentValue;

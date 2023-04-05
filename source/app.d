@@ -20,6 +20,7 @@ import serial : serialReceiveWorker;
 import sim;
 import pid;
 import sensorvalueholder;
+import lowpassfilter;
 
 // Motor-related Values
 private double noLoadRpm = 7600;
@@ -53,13 +54,13 @@ struct ValuesFromInitialAngles
     double theta4;
 }
 
-auto calculateRequiredCurrent(double sensorReading)
+auto calculateRequiredCurrent(double sensorReading, char sensor)
 {
-    float sensitivity = 100.0 / 500.0;
-    float Vref = 2500;
-    float voltage = 4.88 * sensorReading;
+    float sensitivity = (sensor == 'l' ? 0.5618 : 0.4587);
 
-    return (voltage - Vref) * sensitivity;
+    float Vref = 4096;
+    auto current = (sensorReading - Vref) * sensitivity;
+    return current;
 }
 
 auto inverseTransposeJacobian(double theta1, double theta2, double theta3, double theta4)
@@ -213,14 +214,14 @@ int main(string[] args)
     // List of the elements a part of the system (walls, fields, surfaces)
     SimulationElement[] elements = [
         //Honey
-        new ViscousElement(292, 548, 144, 259, orange, 0.7),
+        //new ViscousElement(292, 548, 144, 259, orange, 0.7),
 
         //Magnet Fields
         //Note: Strengths may need to be raised a ton or lowered a ton. I honestly dont know.
-        new MagnetFieldElement(918, 607, 32, 30, red, 10,
-                MagnetFieldElement.POLARITY.PUSH),
-        new MagnetFieldElement(918, 679, 32, 30, blue, 10,
-                MagnetFieldElement.POLARITY.PULL),
+        //new MagnetFieldElement(918, 607, 32, 30, red, 10,
+        //        MagnetFieldElement.POLARITY.PUSH),
+        //new MagnetFieldElement(918, 679, 32, 30, blue, 10,
+        //        MagnetFieldElement.POLARITY.PULL),
 
         //Outside Walls
         new ImpassableElement(289, 545, 249, 30, black),
@@ -238,8 +239,8 @@ int main(string[] args)
         new ImpassableElement(918, 637, 32, 42, black),
 
         //Magnet-Walls
-        new ImpassableElement(918, 607, 32, 30, red),
-        new ImpassableElement(918, 679, 32, 30, blue)
+        //new ImpassableElement(918, 607, 32, 30, red),
+        //new ImpassableElement(918, 679, 32, 30, blue)
     ];
 
     // Create the end effector representation in simulation
@@ -269,15 +270,21 @@ int main(string[] args)
     //bool ledOn = false;
     bool mouseMode = false;
 
+    LowPassFilter lpf_left = new LowPassFilter();
+    LowPassFilter lpf_right = new LowPassFilter();
+
     Pid leftMotorController = new Pid(0);
     Pid rightMotorController = new Pid(0);
 
     bool initialize = true;
     bool start = false;
 
+    int cycle = 0;
+
     // Event Loop
     while (true)
     {
+        cycle++;
         if (!start)
         {
             SDL_Event event1;
@@ -325,8 +332,6 @@ int main(string[] args)
         auto theta2 = THETA_2_INIT - sensorValueHolder.rightEncoder * (PI / 180.0) * (360.0/8192.0);
         //writeln("THETAS: " ~to!string(sensorValueHolder.leftEncoder) ~ "," ~ to!string(sensorValueHolder.rightEncoder));
 
-        writeln("THETAS: " ~to!string(theta1) ~ "," ~ to!string(theta2));
-
         // Clear render with a white background
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, SDL_ALPHA_OPAQUE);
         SDL_RenderFillRect(renderer, &background);
@@ -366,8 +371,8 @@ int main(string[] args)
             }
             catch (InvalidAnglesException e)
             {
-                stderr.writeln("ERROR CALCULATING END POINT FOR THE FOLLOWING THETA_1: " ~ to!string(
-                        theta1) ~ " | THETA_2: " ~ to!string(theta2));
+                //stderr.writeln("ERROR CALCULATING END POINT FOR THE FOLLOWING THETA_1: " ~ to!string(
+                        //theta1) ~ " | THETA_2: " ~ to!string(theta2));
                 continue;
             }
             endEffectorPosFromAngles = endPointsAndThetas.pos;
@@ -440,35 +445,63 @@ int main(string[] args)
             leftMotorController.updateTarget(torques[0][0] / motorTorqueConstant);
             rightMotorController.updateTarget(torques[1][0] / motorTorqueConstant);
 
+            leftCurrentSensorReading = sensorValueHolder.leftCurrentSensor;
+            rightCurrentSensorReading = sensorValueHolder.rightCurrentSensor;
+
+            float cycleTime = 0.01 + (0.002 * sin(cast(float) cycle) * 0.05);
+
+            // Filter sensor readings
+            double filteredLeftSensorReading = lpf_left.update(leftCurrentSensorReading, cycleTime, 1);
+            double filteredRightSensorReading = lpf_right.update(rightCurrentSensorReading, cycleTime, 1);
+
             // Calculate current readings from sensors
-            double leftCurrentReading = calculateRequiredCurrent(leftCurrentSensorReading);
-            double rightCurrentReading = calculateRequiredCurrent(rightCurrentSensorReading);
+            double leftCurrentReading = calculateRequiredCurrent(filteredLeftSensorReading, 'l');
+            double rightCurrentReading = calculateRequiredCurrent(filteredRightSensorReading, 'r');
 
-            // Calculate the control signal according to error
-            double leftControlSignal = leftMotorController.calculateControlSignal(
-                leftCurrentReading);
-            double rightControlSignal = rightMotorController.calculateControlSignal(
-                rightCurrentReading);
-
-            // Define message type and size
-            byte[1] msg_type = [0x01];
-            byte[1] msg_size = [0x18];
+            write("Sensor_L:" ~ to!string(leftCurrentSensorReading) ~ " | Sensor_R:" ~ to!string(rightCurrentSensorReading));
+            write(" | Filter S_L: " ~to!string(filteredLeftSensorReading) ~ " | Filter S_R: " ~to!string(filteredRightSensorReading));
+            writeln(" | Current_L: " ~to!string(leftCurrentReading) ~ " | Current_R: " ~to!string(rightCurrentReading));
 
             // Define motor IDs
             ubyte leftMotorId = 0x01;
             ubyte rightMotorId = 0x02;
 
+            if (abs(leftCurrentReading) >= 600) {
+                // Create message for left motor and send
+                ubyte power = to!ubyte(0);
+                ubyte sign = 0;
+                byte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, leftMotorId, power, sign];
+                serialport.write(leftMotor_msg);
+                continue;
+            }
+
+            if (abs(rightCurrentReading) >= 600) {
+                // Create message for left motor and send
+                ubyte power = to!ubyte(0);
+                ubyte sign = 0;
+                byte[7] rightMotor_msg = [0x76, 0x76, 0x01, 0x3, rightMotorId, power, sign];
+                serialport.write(rightMotor_msg);
+                continue;
+            }
+
+            // Calculate the control signal according to error
+            double leftControlSignal = leftMotorController.calculateControlSignal(leftCurrentReading);
+            double rightControlSignal = rightMotorController.calculateControlSignal(
+                rightCurrentReading);
+
+            //writeln("Left Control Signal" ~to!string(leftControlSignal)~" | Right Control Signal" ~to!string(rightControlSignal));
+
             // Create message for left motor and send
             ubyte power = to!ubyte(abs(leftControlSignal));
             ubyte sign = to!ubyte(sgn(leftControlSignal) == 1 ? 0 : 1);
             byte[7] leftMotor_msg = [0x76, 0x76, 0x01, 0x3, leftMotorId, power, sign];
-            serialport.write(leftMotor_msg);
+            //serialport.write(leftMotor_msg);
 
             // Create message for right motor and send
             power = to!ubyte(abs(rightControlSignal));
             sign = to!ubyte(sgn(rightControlSignal) == 1 ? 0 : 1);
             byte[7] rightMotor_msg = [0x76, 0x76, 0x01, 0x3, rightMotorId, power, sign];
-            serialport.write(rightMotor_msg);
+            //serialport.write(rightMotor_msg);
         }
     }
 }

@@ -61,18 +61,19 @@ void serialReceiveWorker(SerialPort serialport, SensorValueHolder sensorValueHol
                     sensorValueHolder.rightEncoder = x;
                 }
 
-                /*// LEFT CURRENT SENSOR
+                // LEFT CURRENT SENSOR
                 if (id == 0x1)
                 {
-                    newClass.updateLeftCurrentSensor(data);
+                    short x = cast(short) (data * dir);
+                    sensorValueHolder.leftCurrentSensor = x;
                 }
                 //RIGHT CURRENT SENSOR
                 else if (id == 0x2)
                 {
-                    newClass.updateRightCurrentSensor(data);
+                    sensorValueHolder.rightCurrentSensor = cast(short) (data * dir);
                 }
 
-                // X FORCE SENSOR
+                /*// X FORCE SENSOR
                 if (id == 0x5)
                 {
                     newClass.updateXForceSensor(data);
