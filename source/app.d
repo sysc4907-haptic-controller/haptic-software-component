@@ -70,8 +70,8 @@ auto inverseTransposeJacobian(double theta1, double theta2, double theta3, doubl
     //This is the transpose Jacobian
     row0[0] = (LEN_BOTTOM_ARMS * sin(theta1 - theta3) * sin(theta4)) / (sin(theta3 - theta4));
     row1[0] = (LEN_BOTTOM_ARMS * sin(theta4 - theta2) * sin(theta3)) / (sin(theta3 - theta4));
-    row0[1] = (LEN_BOTTOM_ARMS * sin(theta1 - theta3) * cos(theta4)) / (sin(theta3 - theta4));
-    row1[1] = (LEN_BOTTOM_ARMS * sin(theta4 - theta2) * cos(theta3)) / (sin(theta3 - theta4));
+    row0[1] = -(LEN_BOTTOM_ARMS * sin(theta1 - theta3) * cos(theta4)) / (sin(theta3 - theta4));
+    row1[1] = -(LEN_BOTTOM_ARMS * sin(theta4 - theta2) * cos(theta3)) / (sin(theta3 - theta4));
     //returning the inverse of teh transpose jacobian
     return jacobian.inv;
 }
@@ -217,8 +217,11 @@ int main(string[] args)
         SDL_DestroyRenderer(renderer);
     }
 
-    auto gravelSurface = IMG_Load("gravel.jpg");
+    auto gravelSurface = IMG_Load("resources/gravel.jpg");
     auto gravelTexture = SDL_CreateTextureFromSurface(renderer, gravelSurface);
+
+    auto riverSurface = IMG_Load("resources/river.jpg");
+    auto riverTexture = SDL_CreateTextureFromSurface(renderer, riverSurface);
 
     shared serialport = new shared SerialPort(args[1], 115200);
     // TODO: See if we can get this to work
@@ -237,9 +240,9 @@ int main(string[] args)
     auto grey = SDL_Color(128, 128, 128);
     // List of the elements a part of the system (walls, fields, surfaces)
     SimulationElement[] elements = [
-        //GRAVEL
-        new GravelElement(500, 300, 400, 400, grey),
-        new ViscousElement(100, 300, 400, 400, orange, 0.5)
+        new GravelElement(600, 150, 400, 400, grey),
+        new ViscousElement(200, 150, 400, 400, orange, 0.5),
+        new MovementElement(200, 550, 800, 300, black)
     ];
 
     // Create the end effector representation in simulation
@@ -322,6 +325,7 @@ int main(string[] args)
         }*/
         elements[1].draw(renderer);
         SDL_RenderCopy(renderer, gravelTexture, null, &elements[0].rect);
+        SDL_RenderCopy(renderer, riverTexture, null, &elements[2].rect);
         PositionVector endEffectorPosFromAngles;
         double theta3;
         double theta4;
@@ -369,11 +373,14 @@ int main(string[] args)
         if (!mouseMode)
         {
             // Define motor IDs
-            enum ubyte leftMotorID = 1;
-            enum ubyte rightMotorID = 2;
-            enum ubyte leftBrakeID = 3;
-            enum ubyte rightBrakeID = 4;
-
+            enum ubyte rightMotorID = 1;
+            enum ubyte leftMotorID = 2;
+            enum ubyte rightBrakeID = 3;
+            enum ubyte leftBrakeID = 4;
+            bool mflag = false;
+            bool bflag = false;
+            writeln("t1: " ~ to!string(theta1) ~ " t2: " ~ to!string(theta2));
+            //writeln("X: " ~ to!string(endEffector.x) ~ " Y: " ~ to!string(endEffector.y));
             //GRAVEL ELEM
             if (endEffector.x >= elements[0].rect.x
                     && endEffector.x <= elements[0].rect.x + elements[0].rect.w
@@ -386,22 +393,24 @@ int main(string[] args)
                     ubyte rightPower = rightGravelArray[gravelLoop];
                     gravelLoop = gravelLoop + 1 >= 3 ? 0 : gravelLoop + 1;
 
-                    ubyte[7] leftMotor_msg = [
+                    ubyte[7] leftBrake_msg = [
                         0x76, 0x76, 0x01, 0x3, leftBrakeID, leftPower, 0x00
                     ];
-                    serialport.write(leftMotor_msg);
+                    serialport.write(leftBrake_msg);
 
                     ubyte[7] rightBrake_msg = [
                         0x76, 0x76, 0x01, 0x3, rightBrakeID, rightPower, 0x00
                     ];
+
                     serialport.write(rightBrake_msg);
                     sw.reset();
                     writeln(rightBrake_msg);
                     stdout.flush();
                 }
+                bflag = true;
             }
             //HONEY ELEM
-        else if (endEffector.x >= elements[1].rect.x
+            else if (endEffector.x >= elements[1].rect.x
                     && endEffector.x <= elements[1].rect.x + elements[1].rect.w
                     && endEffector.y >= elements[1].rect.y
                     && endEffector.y <= elements[1].rect.y + elements[1].rect.h)
@@ -410,10 +419,10 @@ int main(string[] args)
                 ubyte leftPower = 200;
                 ubyte rightPower = 200;
 
-                ubyte[7] leftMotor_msg = [
+                ubyte[7] leftBrake_msg = [
                     0x76, 0x76, 0x01, 0x3, leftBrakeID, leftPower, 0x00
                 ];
-                serialport.write(leftMotor_msg);
+                serialport.write(leftBrake_msg);
 
                 ubyte[7] rightBrake_msg = [
                     0x76, 0x76, 0x01, 0x3, rightBrakeID, rightPower, 0x00
@@ -421,19 +430,57 @@ int main(string[] args)
                 serialport.write(rightBrake_msg);
                 writeln(rightBrake_msg);
                 stdout.flush();
-            }
-            else
+                bflag = true;
+            }else if (endEffector.x >= elements[2].rect.x
+            && endEffector.x <= elements[2].rect.x + elements[2].rect.w
+            && endEffector.y >= elements[2].rect.y
+            && endEffector.y <= elements[2].rect.y + elements[2].rect.h)
             {
-                ubyte[7] leftMotor_msg = [
+                    auto torques = mldivide(inverseTransposeJacobian(theta1, theta2, theta3, theta4), [0.02, 0.1].sliced(2,1));
+                    //writeln("LEFT PERCENTAGE: " ~ to!string(torques[0][0]* 255/538.4));
+                    //writeln("RIGHT PERCENTAGE: " ~ to!string(torques[1][0]* 255/538.4));
+                    stdout.flush();
+                    ubyte leftPower = to!ubyte(round(abs(torques[0][0] * 255/538.4)));
+                    ubyte rightPower = to!ubyte(round(abs(torques[1][0] * 255/538.4)));
+                    ubyte[7] leftMotor_msg = [
+                        0x76, 0x76, 0x01, 0x3, leftMotorID, leftPower, ((torques[0][0] > 0) ? 0 : 1)
+                    ];
+                    serialport.write(leftMotor_msg);
+
+                    ubyte[7] rightMotor_msg = [
+                        0x76, 0x76, 0x01, 0x3, rightMotorID, rightPower, ((torques[1][0] > 0) ? 0 : 1)
+                    ];
+                    serialport.write(rightMotor_msg);
+                    //writeln("RIGHT MOTOR: " ~ to!string(rightMotor_msg));
+                    //writeln("LEFT MOTOR: " ~ to!string(leftMotor_msg));
+                    mflag = true;
+                    stdout.flush();
+                }
+            if(!bflag)
+            {
+                ubyte[7] leftBrake_msg = [
                     0x76, 0x76, 0x01, 0x3, leftBrakeID, 0, 0x00
                 ];
-                serialport.write(leftMotor_msg);
+                serialport.write(leftBrake_msg);
 
                 ubyte[7] rightBrake_msg = [
                     0x76, 0x76, 0x01, 0x3, rightBrakeID, 0, 0x00
                 ];
                 serialport.write(rightBrake_msg);
             }
+        if(!mflag) {
+            ubyte[7] leftMotor_msg = [
+                0x76, 0x76, 0x01, 0x3, leftMotorID, 0, 0x00
+            ];
+            serialport.write(leftMotor_msg);
+
+            ubyte[7] rightMotor_msg = [
+                0x76, 0x76, 0x01, 0x3, rightMotorID, 0, 0x00
+            ];
+            serialport.write(rightMotor_msg);
+        }
+
+
             //writeln("StopWatch: " ~ to!string(sw.peek()));
         }
 

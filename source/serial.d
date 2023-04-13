@@ -49,13 +49,13 @@ void serialReceiveWorker(SerialPort serialport, SensorValueHolder sensorValueHol
                 ushort data = ((ch1 << 8) | (ch2 << 0));
 
                 // LEFT ENCODER
-                if (id == 0x3)
+                if (id == 0x4)
                 {
                     short x = cast(short) (data * dir);
                     sensorValueHolder.leftEncoder = x;
                 }
                 //RIGHT ENCODER
-                else if (id == 0x4)
+                else if (id == 0x3)
                 {
                     short x = cast(short) (data * dir);
                     sensorValueHolder.rightEncoder = x;
