@@ -228,15 +228,19 @@ class EndEffector
         currVelocity = new VelocityVector(0, 0);
     }
 
+    void update(PositionVector pos){
+        update(cast(int) round(pos.x), cast(int) round(pos.y));
+    }
+
     // Updates the position and time of the end effector accordingly
-    void update(int mouseX, int mouseY)
+    void update(int newX, int newY)
     {
         prevX = x;
         prevY = y;
         prevTime = currTime;
         currTime = MonoTime.currTime();
-        x = mouseX;
-        y = mouseY;
+        x = newX;
+        y = newY;
         prevVelocity = currVelocity;
         double deltaTime = (currTime - prevTime).total!"msecs";
         currVelocity = new VelocityVector((x - prevX) * 0.1 * 1000 / deltaTime,
@@ -247,7 +251,7 @@ class EndEffector
     ForceVector calculateForce()
     {
         //note: acc is mm/ms*s -> m/s^2
-        const MASS = 0.1; //1kg
+        const MASS = 0.1; //0.1kg
 
         double deltaTime = (currTime - prevTime).total!"msecs";
         auto accX = (currVelocity.x - prevVelocity.x) / deltaTime;
